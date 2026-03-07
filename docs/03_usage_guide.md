@@ -150,8 +150,9 @@ ansible-playbook -i hosts create_k8s.yml -e runtime=crio -e crio_version=v1.30
 ### CNI Plugin (Networking)
 
 ```yaml
-cni_plugin: calico    # Options: calico, flannel
-cni_version: v3.29.3  # Version tag from the CNI project's releases
+cni_plugin: flannel    # Options: calico, flannel
+calico_version: v3.26.0  # Version tag for Calico releases
+flannel_version: v0.26.0 # Version tag for Flannel releases
 ```
 
 The CNI plugin handles networking between your pods. The playbook supports two popular options:
@@ -168,12 +169,12 @@ To switch to Flannel:
 ```bash
 # Option A: Edit the file (recommended)
 # Change cni_plugin: calico → cni_plugin: flannel in create_k8s.yml
-# Change cni_version: v3.29.3 → cni_version: v0.26.4
+# Make sure flannel_version is set to a valid release (e.g. v0.26.0)
 
 # Option B: Override at runtime (no file changes)
 ansible-playbook -i hosts create_k8s.yml \
   -e cni_plugin=flannel \
-  -e cni_version=v0.26.4
+  -e flannel_version=v0.26.0
 ```
 
 > **Important**: The `cni_version` must be a valid release tag from the CNI project. Calico versions look like `v3.29.3` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.4` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
@@ -260,17 +261,21 @@ ansible-playbook -i hosts create_k8s.yml
 ansible-playbook -i hosts create_k8s.yml \
   -e runtime=containerd \
   -e cni_plugin=flannel \
-  -e cni_version=v0.26.4
+  -e flannel_version=v0.26.0
 ```
 
 ### Reset a cluster
 
 This wipes everything and gives you a fresh start. Run this when you want to tear down and rebuild.
 
-> **Caution**: This deletes all data and wipes containers. You will be prompted to confirm `yes` before it proceeds.
+> **Caution**: This deletes all data and wipes containers. You will be prompted to confirm `yes` before it proceeds. To bypass the prompt for automation, append `-e force_reset=yes`.
 
 ```bash
+# Interactive reset
 ansible-playbook -i hosts reset-k8s-cluster.yml
+
+# Automated reset (bypasses prompt)
+ansible-playbook -i hosts reset-k8s-cluster.yml -e force_reset=yes
 ```
 
 ### Upgrade a cluster

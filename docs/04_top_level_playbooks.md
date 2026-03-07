@@ -84,10 +84,10 @@ For each node in the cluster, one at a time:
 3. **Kubeadm Upgrade Phase:**
    - On the *first* master: Executes `kubeadm upgrade apply <target-version>`. This upgrades the cluster configuration, etcd, API Server, Scheduler, and Controller Manager via static manifests.
    - On subsequent masters and workers: Executes `kubeadm upgrade node`.
-4. **Zero-Downtime Node Draining:** Uses `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data --force` to smoothly evict running pods over to other healthy nodes in the cluster.
+4. **Zero-Downtime Node Draining:** Uses `kubectl drain <ansible_hostname> --ignore-daemonsets --delete-emptydir-data --force` to smoothly evict running pods over to other healthy nodes natively mapping the OS hostname to the Kubernetes node name.
 5. **Upgrade Kubelet & Kubectl:** OS package update for `kubelet` and `kubectl` to exactly match the target.
 6. **Restart OS Services:** `systemctl daemon-reload` and `systemctl restart kubelet`.
-7. **Uncordon Node:** Executes `kubectl uncordon <node>` to mark the node as schedulable, returning it seamlessly to the cluster pool.
+7. **Uncordon Node:** Executes `kubectl uncordon <ansible_hostname>` to mark the node as schedulable, returning it seamlessly to the cluster pool.
 
 ---
 
@@ -95,7 +95,7 @@ For each node in the cluster, one at a time:
 
 This playbook tears down the environment safely. It is highly destructive.
 
-1. **Confirmation Check:** Halts execution with an interactive pause module, forcing the user to explicitly type `yes` to authorize destruction.
+1. **Confirmation Check:** Halts execution with an interactive pause module, forcing the user to explicitly type `yes` to authorize destruction *(can be bypassed automatically by appending `-e force_reset=yes`)*.
 2. **Kubeadm Reset:** Executes `kubeadm reset -f` to systematically unconfigure static pods, delete local etcd member data, and reset iptables rules.
 3. **Clean Configurations:** Hard deletes the master's `/etc/kubernetes/` directories, `/var/lib/kubelet/config.yaml`, and the user's `~/.kube/config`.
 4. **Wipe CNI State:** Removes interface configuration files located in `/etc/cni/net.d/` (`10-calico.conflist`, `10-flannel.conflist`).

@@ -66,26 +66,34 @@ Similar to Kubernetes, `cri-o` publishes its repository keys. We fetch the offic
 #### Lines 25-32: Add CRI-O repository (Ubuntu)
 
 ```yaml
+- name: Remove legacy openSUSE kubic CRI-O repositories (Ubuntu)
+  ansible.builtin.shell: rm -f /etc/apt/sources.list.d/devel:kubic*
+
 - name: Add CRI-O repository (Ubuntu)
   ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /"
+    repo: >-
+      deb [trusted=yes signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
+      https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/deb/ /
     state: present
     filename: cri-o
 ```
+
+This step first purges any legacy `devel:kubic` repositories that conflict with modern CRI-O packages. It then creates `/etc/apt/sources.list.d/cri-o.list`, pointing it at the trusted keyring. The `trusted=yes` flag is intentionally injected to bypass `EXPKEYSIG` errors for older, EOL CRI-O versions (like `v1.28`) whose release signatures have officially expired.
 
 Creates `/etc/apt/sources.list.d/cri-o.list`, pointing it at the trusted keyring.
 
 #### Lines 35-43: Install CRI-O packages (Ubuntu)
 
 ```yaml
-- name: Install CRI-O packages (Ubuntu)
+- name: Install CRI-O (Ubuntu)
   ansible.builtin.apt:
     name: cri-o
-    state: present
+    state: latest
     update_cache: yes
+    dpkg_options: 'force-overwrite'
 ```
 
-Instructs `apt` to fetch the new definitions and install the `cri-o` primary package natively onto the Ubuntu host.
+Instructs `apt` to fetch the new definitions and install the `cri-o` primary package natively onto the Ubuntu host. We forcefully use `state: latest` with `force-overwrite` to guarantee that older conflicting packages (like `cri-o-runc`) are completely stomped over without causing `dpkg` to crash during upgrades.
 
 #### RedHat/CentOS/Fedora Execution Path
 
