@@ -13,7 +13,9 @@
     - name: Abort if not confirmed
       ansible.builtin.fail:
         msg: "Reset aborted by user."
-      when: confirm_reset.user_input | lower != 'yes'
+      when: 
+        - (confirm_reset.user_input | default('') | lower) != 'yes'
+        - (force_reset | default('no') | lower) != 'yes'
 
   tasks:
     # Step 1: Disable swap (if not already done)

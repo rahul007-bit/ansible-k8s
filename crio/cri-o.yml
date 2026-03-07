@@ -31,6 +31,10 @@
         creates: /etc/apt/keyrings/cri-o-apt-keyring.gpg
       when: ansible_distribution == 'Ubuntu'
 
+    - name: Remove legacy openSUSE kubic CRI-O repositories (Ubuntu)
+      ansible.builtin.shell: rm -f /etc/apt/sources.list.d/devel:kubic*
+      when: ansible_distribution == 'Ubuntu'
+      args:
     - name: Add CRI-O apt repository (Ubuntu)
       ansible.builtin.apt_repository:
         repo: >-
@@ -43,8 +47,9 @@
     - name: Install CRI-O (Ubuntu)
       ansible.builtin.apt:
         name: cri-o
-        state: present
+        state: latest
         update_cache: true
+        dpkg_options: 'force-overwrite'
       when: ansible_distribution == 'Ubuntu'
 
     # ---- RHEL / CentOS / Fedora ----
@@ -58,7 +63,7 @@
     - name: Install CRI-O (RHEL/CentOS/Fedora)
       ansible.builtin.dnf:
         name: cri-o
-        state: present
+        state: latest
       when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
 
     # ---- Enable and start CRI-O ----
