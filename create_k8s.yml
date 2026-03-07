@@ -4,16 +4,17 @@
   become: true
   gather_facts: true
   vars:
-    runtime: containerd
+    runtime: crio
     kube_user: "{{ ansible_user | default('ubuntu') }}"
-    kube_version: "1.32" # Kubernetes version (e.g., 1.32, 1.31, 1.30)
-    crio_version: "v1.31" # CRI-O version (e.g., v1.31, v1.30)
+    kube_version: "1.28" # Kubernetes version (e.g., 1.32, 1.31, 1.30)
+    crio_version: "v1.29" # CRI-O version (e.g., v1.31, v1.30)
     cni_plugins_version: "v1.6.2" # Version for /opt/cni/bin binaries
-    cni_plugin: calico # Options: calico, flannel
-    cni_version: v3.29.3
+    cni_plugin: flannel # Options: calico, flannel
+    calico_version: v3.26.0
+    flannel_version: v0.26.0
     cni_manifest_urls:
-      calico: "https://raw.githubusercontent.com/projectcalico/calico/{{ cni_version }}/manifests/calico.yaml"
-      flannel: "https://github.com/flannel-io/flannel/releases/download/{{ cni_version }}/kube-flannel.yml"
+      calico: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+      flannel: "https://github.com/flannel-io/flannel/releases/download/{{ flannel_version }}/kube-flannel.yml"
     cni_default_cidrs:
       calico: "192.168.0.0/16"
       flannel: "10.244.0.0/16"

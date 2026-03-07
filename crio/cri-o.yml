@@ -34,11 +34,11 @@
     - name: Remove legacy openSUSE kubic CRI-O repositories (Ubuntu)
       ansible.builtin.shell: rm -f /etc/apt/sources.list.d/devel:kubic*
       when: ansible_distribution == 'Ubuntu'
-      args:
+
     - name: Add CRI-O apt repository (Ubuntu)
       ansible.builtin.apt_repository:
         repo: >-
-          deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
+          deb [trusted=yes signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
           https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/deb/ /
         state: present
         filename: cri-o
