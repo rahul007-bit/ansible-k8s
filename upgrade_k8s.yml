@@ -136,6 +136,23 @@
         msg: "{{ upgrade_apply.stdout_lines | default(['No apply output']) }}"
       when: inventory_hostname == groups['controlplane'][0]
 
+    - name: Drain node before upgrade
+      ansible.builtin.command: >
+        kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets
+        --delete-emptydir-data
+        --force
+        --grace-period=60
+        --timeout=5m
+      environment:
+        KUBECONFIG: /home/{{ kube_user }}/.kube/config
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      retries: 3
+      delay: 10
+      register: drain_result
+      until: drain_result.rc == 0
+      changed_when: true
+
     - name: Upgrade additional control plane nodes
       ansible.builtin.command: kubeadm upgrade node
       when:
@@ -177,6 +194,13 @@
       ansible.builtin.service:
         name: kubelet
         state: restarted
+
+    - name: Uncordon node after upgrade
+      ansible.builtin.command: kubectl uncordon {{ inventory_hostname }}
+      environment:
+        KUBECONFIG: /home/{{ kube_user }}/.kube/config
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      changed_when: true
 
     - name: Check kubelet version
       ansible.builtin.command: kubelet --version

@@ -4,6 +4,17 @@
   become: true
   vars:
     kube_user: "{{ ansible_user | default('ubuntu') }}"
+  pre_tasks:
+    - name: CONFIRM CLUSTER RESET
+      ansible.builtin.pause:
+        prompt: "WARNING: This playbook will completely DESTROY the Kubernetes cluster and delete all data. Type 'yes' to continue"
+      register: confirm_reset
+
+    - name: Abort if not confirmed
+      ansible.builtin.fail:
+        msg: "Reset aborted by user."
+      when: confirm_reset.user_input | lower != 'yes'
+
   tasks:
     # Step 1: Disable swap (if not already done)
     - name: Disabling SWAP
