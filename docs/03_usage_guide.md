@@ -2,6 +2,37 @@
 
 Once your prerequisites are in place (see `02_prerequisites.md`), you're ready to configure and run the playbook. This doc explains what you can tweak and how each setting affects the cluster.
 
+## Table of Contents
+
+- [Setting Up the Inventory](#setting-up-the-inventory)
+  - [What each part means](#what-each-part-means)
+  - [Adding more workers](#adding-more-workers)
+  - [Multiple control plane nodes (HA)](#multiple-control-plane-nodes-ha)
+- [Tweaking the Playbook Variables](#tweaking-the-playbook-variables)
+  - [Container Runtime](#container-runtime)
+  - [Kubernetes Version](#kubernetes-version)
+  - [CRI-O Version](#cri-o-version)
+  - [CNI Plugin (Networking)](#cni-plugin-networking)
+  - [CNI Plugins Binaries Version](#cni-plugins-binaries-version)
+  - [Pod Network CIDR](#pod-network-cidr)
+  - [Kube User](#kube-user)
+  - [HA Settings](#ha-settings)
+  - [OS Upgrade](#os-upgrade)
+- [Running the Playbooks](#running-the-playbooks)
+  - [Create a cluster](#create-a-cluster)
+  - [Reset a cluster](#reset-a-cluster)
+  - [Upgrade a cluster](#upgrade-a-cluster)
+  - [Dry run (check mode)](#dry-run-check-mode)
+  - [See detailed output](#see-detailed-output)
+  - [Run on specific hosts only](#run-on-specific-hosts-only)
+- [Common Scenarios](#common-scenarios)
+  - [Scenario 1: Fresh cluster with defaults](#scenario-1-fresh-cluster-with-defaults)
+  - [Scenario 2: Rebuild from scratch](#scenario-2-rebuild-from-scratch)
+  - [Scenario 3: Use Flannel instead of Calico](#scenario-3-use-flannel-instead-of-calico)
+  - [Scenario 4: Add a new worker to an existing cluster](#scenario-4-add-a-new-worker-to-an-existing-cluster)
+  - [Scenario 5: HA cluster with multiple masters](#scenario-5-ha-cluster-with-multiple-masters)
+- [Quick Reference](#quick-reference)
+
 ---
 
 ## Setting Up the Inventory
@@ -234,10 +265,25 @@ ansible-playbook -i hosts create_k8s.yml \
 
 ### Reset a cluster
 
-This wipes everything and gives you a fresh start. Run this when you want to tear down and rebuild:
+This wipes everything and gives you a fresh start. Run this when you want to tear down and rebuild.
+
+> **Caution**: This deletes all data and wipes containers. You will be prompted to confirm `yes` before it proceeds.
 
 ```bash
 ansible-playbook -i hosts reset-k8s-cluster.yml
+```
+
+### Upgrade a cluster
+
+Use `upgrade_k8s.yml` to perform automated, zero-downtime rolling upgrades of your Kubernetes cluster.
+
+> **CRITICAL RULE**: Kubernetes only supports upgrading **one minor version at a time**. You cannot jump directly from `v1.28` to `v1.32`. You must upgrade sequentially (e.g., `1.28` → `1.29` → `1.30`). The playbook will automatically abort if you try to skip a version.
+
+The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kubectl drain` before upgrading packages, ensuring your applications experience zero downtime.
+
+```bash
+# Example: Upgrading from v1.30.x to v1.31.x
+ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31
 ```
 
 ### Dry run (check mode)
@@ -360,3 +406,4 @@ ansible-playbook -i hosts create_k8s.yml
 | Dry run | `ansible-playbook -i hosts create_k8s.yml --check` |
 | Verbose mode | `ansible-playbook -i hosts create_k8s.yml -vvv` |
 | Run on one host | `ansible-playbook -i hosts create_k8s.yml --limit host2` |
+| Upgrade cluster | `ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31` |

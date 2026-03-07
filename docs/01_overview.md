@@ -2,6 +2,18 @@
 
 This project automates the deployment and teardown of a Kubernetes cluster using Ansible. It supports multiple container runtimes and CNI plugins, and is designed for bare-metal or VM-based environments.
 
+## Table of Contents
+
+- [What This Playbook Does](#what-this-playbook-does)
+  - [`create_k8s.yml` — Full Cluster Bootstrap](#create_k8syml--full-cluster-bootstrap)
+  - [`reset-k8s-cluster.yml` — Full Cluster Teardown](#reset-k8s-clusteryml--full-cluster-teardown)
+- [Configurable Variables](#configurable-variables)
+  - [Default Pod CIDRs (Auto-Selected)](#default-pod-cidrs-auto-selected)
+- [Usage Examples](#usage-examples)
+- [Project Structure](#project-structure)
+- [Inventory Format](#inventory-format)
+- [Supported Platforms](#supported-platforms)
+
 ---
 
 ## What This Playbook Does
@@ -17,7 +29,7 @@ System Prep → K8s Packages → Container Runtime → kubeadm init → CNI → 
 #### Stage-by-Stage Breakdown
 
 | # | Stage | What Happens | Runs On |
-|---|-------|-------------|---------|
+| --- | ------- | ------------- | --------- |
 | 1 | **System Preparation** | Loads kernel modules (`overlay`, `br_netfilter`), sets sysctl params, disables swap | All nodes |
 | 2 | **Kubernetes Packages** | Installs `kubeadm`, `kubelet`, `kubectl` from `pkgs.k8s.io` | All nodes |
 | 3 | **Container Runtime** | Installs & configures the selected runtime (containerd or CRI-O) | All nodes |
@@ -32,7 +44,7 @@ System Prep → K8s Packages → Container Runtime → kubeadm init → CNI → 
 Cleanly tears down the cluster for a fresh start:
 
 | Stage | What Happens |
-|-------|-------------|
+| ------- | ------------- |
 | 1 | Disables swap |
 | 2 | Runs `kubeadm reset -f` |
 | 3 | Removes kubelet config and kubeconfig |
@@ -49,13 +61,13 @@ Cleanly tears down the cluster for a fresh start:
 All variables are defined in `create_k8s.yml` under `vars:` and can be overridden at runtime with `-e`:
 
 | Variable | Default | Options | Description |
-|----------|---------|---------|-------------|
+| ---------- | --------- | --------- | ------------- |
 | `runtime` | `containerd` | `containerd`, `crio` | Container runtime to install |
 | `kube_version` | `1.32` | `1.32`, `1.31`, `1.30` | Kubernetes packages version |
 | `crio_version` | `v1.31` | `v1.31`, `v1.30` | CRI-O version (only used when `runtime: crio`) |
 | `cni_plugin` | `calico` | `calico`, `flannel` | CNI networking plugin |
 | `cni_version` | `v3.29.3` | Any valid release tag | Version of the CNI plugin |
-| `cni_plugins_version`| `v1.6.2` | Any valid release tag | Version of the CNI binaries for `/opt/cni/bin` |
+| `cni_plugins_version` | `v1.6.2` | Any valid release tag | Version of the CNI binaries for `/opt/cni/bin` |
 | `pod_network_cidr` | Auto-set | Any CIDR | Pod network range (auto-set based on CNI) |
 | `kube_user` | `ansible_user` | Any username | User who owns kubeconfig |
 | `control_plane_endpoint` | First master's IP | Any IP/hostname | API server endpoint for HA |
@@ -65,9 +77,9 @@ All variables are defined in `create_k8s.yml` under `vars:` and can be overridde
 ### Default Pod CIDRs (Auto-Selected)
 
 | CNI Plugin | Default CIDR |
-|------------|--------------|
-| Calico     | `192.168.0.0/16` |
-| Flannel    | `10.244.0.0/16` |
+| ------------ | -------------- |
+| Calico | `192.168.0.0/16` |
+| Flannel | `10.244.0.0/16` |
 
 ---
 
@@ -121,7 +133,7 @@ ansible-playbook -i hosts create_k8s.yml -vvv
 
 ## Project Structure
 
-```
+```markdown
 ansible/
 ├── basic_setup/
 │   └── system_settings.yml         # Kernel modules, sysctl, swap disable
@@ -166,8 +178,8 @@ ansible_python_interpreter=/usr/bin/python3
 ## Supported Platforms
 
 | OS | Container Runtime | Tested |
-|----|------------------|--------|
+| ---- | ------------------ | -------- |
 | Ubuntu 20.04 / 22.04 / 24.04 | containerd, CRI-O | ✅ |
-| Fedora 38+ | containerd, CRI-O | ✅ |
-| RHEL 8 / 9 | containerd, CRI-O | ✅ |
-| CentOS Stream 8 / 9 | containerd, CRI-O | ✅ |
+| Fedora 38+ | containerd, CRI-O | ❌ |
+| RHEL 8 / 9 | containerd, CRI-O | ❌ |
+| CentOS Stream 8 / 9 | containerd, CRI-O | ❌ |

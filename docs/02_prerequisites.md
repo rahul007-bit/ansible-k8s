@@ -2,6 +2,37 @@
 
 Before running the Kubernetes playbooks, verify that your Ansible control node can reach all target hosts and has the correct permissions. This guide walks you through each check.
 
+## Table of Contents
+
+- [1. Install Ansible](#1-install-ansible)
+  - [Ubuntu / Debian](#ubuntu--debian)
+  - [Fedora / RHEL / CentOS](#fedora--rhel--centos)
+  - [Using pip (any OS)](#using-pip-any-os)
+- [2. SSH Key Setup](#2-ssh-key-setup)
+  - [Generate an SSH key (if you don't have one)](#generate-an-ssh-key-if-you-dont-have-one)
+  - [Copy the key to all target hosts](#copy-the-key-to-all-target-hosts)
+  - [Verify SSH works without a password](#verify-ssh-works-without-a-password)
+  - [Using a Non-Default or Custom SSH Key](#using-a-non-default-or-custom-ssh-key)
+    - [Step A: Make Sure Your Key Works](#step-a-make-sure-your-key-works)
+    - [Step B: Tell Ansible Which Key to Use](#step-b-tell-ansible-which-key-to-use)
+- [3. Test Ansible Connectivity](#3-test-ansible-connectivity)
+  - [Ping all hosts](#ping-all-hosts)
+    - [Expected connect output](#expected-connect-output)
+  - [Ping specific groups](#ping-specific-groups)
+- [4. Test Privilege Escalation (become / sudo)](#4-test-privilege-escalation-become--sudo)
+  - [Test running a command as root](#test-running-a-command-as-root)
+    - [Expected test output](#expected-test-output)
+  - [Common privilege issues and fixes](#common-privilege-issues-and-fixes)
+  - [Configure passwordless sudo (recommended)](#configure-passwordless-sudo-recommended)
+- [5. Test Fact Gathering](#5-test-fact-gathering)
+  - [Expected fact output (example for Ubuntu)](#expected-fact-output-example-for-ubuntu)
+  - [Test architecture detection](#test-architecture-detection)
+- [6. Network Requirements](#6-network-requirements)
+  - [Ports that must be open](#ports-that-must-be-open)
+  - [Quick network connectivity test between nodes](#quick-network-connectivity-test-between-nodes)
+- [7. Pre-Flight Checklist](#7-pre-flight-checklist)
+- [Troubleshooting Quick Reference](#troubleshooting-quick-reference)
+
 ---
 
 ## 1. Install Ansible
@@ -184,7 +215,7 @@ The most basic test — checks that Ansible can connect and Python is available:
 ansible -i hosts all -m ping
 ```
 
-#### Expected output
+#### Expected connect output
 
 ```bash
 host3 | SUCCESS => {
@@ -227,7 +258,7 @@ The playbooks use `become: true` to run tasks as root. You must verify this work
 ansible -i hosts all -m command -a "whoami" --become
 ```
 
-#### Expected output
+#### Expected test output
 
 ```bash
 host3 | CHANGED | rc=0 >>
@@ -274,7 +305,7 @@ The playbook uses `gather_facts: true` to detect the OS, architecture, and distr
 ansible -i hosts all -m setup -a "filter=ansible_distribution*" --become
 ```
 
-#### Expected output (example for Ubuntu)
+### Expected fact output (example for Ubuntu)
 
 ```json
 {
