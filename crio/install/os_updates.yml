@@ -1,0 +1,27 @@
+---
+# OS update/upgrade tasks
+# Set os_upgrade: true in your playbook vars or via -e to enable full package upgrades
+# Cache update always runs, but dist-upgrade/dnf upgrade is optional
+
+- name: Update apt cache (Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 86400 #One day
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Upgrade all packages on Ubuntu
+  ansible.builtin.apt:
+    upgrade: dist
+  when: ansible_distribution == 'Ubuntu' and (os_upgrade | default(false) | bool)
+
+- name: Upgrade all packages on RHEL/CentOS
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  when: ansible_distribution in ['RedHat', 'CentOS'] and (os_upgrade | default(false) | bool)
+
+- name: Upgrade all packages on Fedora
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  when: ansible_distribution == 'Fedora' and (os_upgrade | default(false) | bool)

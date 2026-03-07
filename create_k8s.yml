@@ -1,0 +1,173 @@
+---
+- name: Create k8s Cluster
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    runtime: containerd
+    kube_user: "{{ ansible_user | default('ubuntu') }}"
+    kube_version: "1.32" # Kubernetes version (e.g., 1.32, 1.31, 1.30)
+    crio_version: "v1.31" # CRI-O version (e.g., v1.31, v1.30)
+    cni_plugins_version: "v1.6.2" # Version for /opt/cni/bin binaries
+    cni_plugin: calico # Options: calico, flannel
+    cni_version: v3.29.3
+    cni_manifest_urls:
+      calico: "https://raw.githubusercontent.com/projectcalico/calico/{{ cni_version }}/manifests/calico.yaml"
+      flannel: "https://github.com/flannel-io/flannel/releases/download/{{ cni_version }}/kube-flannel.yml"
+    cni_default_cidrs:
+      calico: "192.168.0.0/16"
+      flannel: "10.244.0.0/16"
+    pod_network_cidr: "{{ cni_default_cidrs[cni_plugin] }}"
+    # HA settings
+    control_plane_endpoint: "{{ hostvars[groups['controlplane'][0]].ansible_host }}"
+    kubeconfig_on_all_cp: false # Set to true to copy kubeconfig to all control plane nodes
+  tasks:
+    - name: Importing basic setup tasks
+      ansible.builtin.include_tasks: basic_setup/system_settings.yml
+    - name: Installing Kubernetes packages
+      ansible.builtin.include_tasks: tasks/install_kubernetes.yml
+    - name: Importing crio tasks
+      ansible.builtin.include_tasks: crio/cri-o.yml
+      when: runtime == "crio"
+    - name: Importing containerd tasks
+      ansible.builtin.include_tasks: containerd/containerd.yml
+      when: runtime == "containerd"
+
+    # ---- Ensure CNI plugin binaries exist ----
+    - name: Ensure /opt/cni/bin directory exists
+      ansible.builtin.file:
+        path: /opt/cni/bin
+        state: directory
+        mode: "0755"
+
+    - name: Verify if CNI plugin binaries already exist
+      ansible.builtin.stat:
+        path: /opt/cni/bin/bridge
+      register: cni_bin_check
+
+    - name: Download and extract CNI plugins
+      ansible.builtin.unarchive:
+        src: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
+        dest: /opt/cni/bin
+        remote_src: true
+      when: not cni_bin_check.stat.exists
+
+    # ---- Control Plane Init (first master only) ----
+    - name: Init cluster on first control plane node
+      ansible.builtin.command: >-
+        kubeadm init
+        --pod-network-cidr={{ pod_network_cidr }}
+        --control-plane-endpoint={{ control_plane_endpoint }}:6443
+        --upload-certs
+      register: output_init
+      failed_when: output_init.rc != 0 and 'already exists' not in (output_init.stderr | default(''))
+      changed_when: output_init.rc == 0
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Show init output
+      ansible.builtin.debug:
+        msg: "{{ output_init.stdout if output_init.stdout is defined else 'No init output available' }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    # ---- Kubeconfig on first master ----
+    - name: Ensure .kube directory exists (first control plane)
+      ansible.builtin.file:
+        path: "~{{ kube_user }}/.kube"
+        state: directory
+        mode: "0755"
+        owner: "{{ kube_user }}"
+        group: "{{ kube_user }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Copy kubeconfig (first control plane)
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "~{{ kube_user }}/.kube/config"
+        remote_src: true
+        owner: "{{ kube_user }}"
+        group: "{{ kube_user }}"
+        mode: "0644"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    # ---- Apply CNI ----
+    - name: Apply CNI {{ cni_plugin }} ({{ cni_version }})
+      ansible.builtin.command: kubectl apply -f {{ cni_manifest_urls[cni_plugin] }}
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      when: inventory_hostname == groups['controlplane'][0]
+      changed_when: false
+
+    # ---- Join additional control plane nodes ----
+    - name: Upload certs and get certificate key
+      ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: upload_certs_output
+      when: inventory_hostname == groups['controlplane'][0]
+      changed_when: false
+
+    - name: Extract certificate key
+      ansible.builtin.set_fact:
+        certificate_key: "{{ upload_certs_output.stdout_lines[-1] }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Get join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: join_command
+      when: inventory_hostname == groups['controlplane'][0]
+      changed_when: false
+
+    - name: Join additional control plane nodes
+      ansible.builtin.command: >-
+        {{ hostvars[groups['controlplane'][0]].join_command.stdout }}
+        --control-plane
+        --certificate-key {{ hostvars[groups['controlplane'][0]].certificate_key }}
+      when:
+        - inventory_hostname in groups['controlplane']
+        - inventory_hostname != groups['controlplane'][0]
+        - hostvars[groups['controlplane'][0]].join_command.stdout is defined
+      register: cp_join_output
+      failed_when: cp_join_output.rc != 0 and 'already exists' not in (cp_join_output.stderr | default(''))
+      changed_when: cp_join_output.rc == 0
+
+    # ---- Kubeconfig on additional control plane nodes (optional) ----
+    - name: Ensure .kube directory exists (additional control plane)
+      ansible.builtin.file:
+        path: "~{{ kube_user }}/.kube"
+        state: directory
+        mode: "0755"
+        owner: "{{ kube_user }}"
+        group: "{{ kube_user }}"
+      when:
+        - kubeconfig_on_all_cp | bool
+        - inventory_hostname in groups['controlplane']
+        - inventory_hostname != groups['controlplane'][0]
+
+    - name: Copy kubeconfig (additional control plane)
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "~{{ kube_user }}/.kube/config"
+        remote_src: true
+        owner: "{{ kube_user }}"
+        group: "{{ kube_user }}"
+        mode: "0644"
+      when:
+        - kubeconfig_on_all_cp | bool
+        - inventory_hostname in groups['controlplane']
+        - inventory_hostname != groups['controlplane'][0]
+
+    # ---- Join worker nodes ----
+    - name: Show join command
+      ansible.builtin.debug:
+        msg: "{{ hostvars[groups['controlplane'][0]].join_command.stdout }}"
+      when: hostvars[groups['controlplane'][0]].join_command.stdout is defined
+
+    - name: Join worker nodes
+      ansible.builtin.command: "{{ hostvars[groups['controlplane'][0]].join_command.stdout }}"
+      when:
+        - inventory_hostname in groups.get('worker', [])
+      register: worker_join_output
+      failed_when: worker_join_output.rc != 0 and 'already exists' not in (worker_join_output.stderr | default(''))
+      changed_when: worker_join_output.rc == 0

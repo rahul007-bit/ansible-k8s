@@ -1,0 +1,69 @@
+---
+- when: runtime == "crio"
+  block:
+    - name: Importing os updates
+      ansible.builtin.include_tasks: ./install/os_updates.yml
+
+    # ---- Stop containerd if present (switching to CRI-O) ----
+    - name: Stop and disable containerd if present (switching to CRI-O)
+      ansible.builtin.service:
+        name: containerd
+        state: stopped
+        enabled: false
+      ignore_errors: true
+      changed_when: false
+
+    # ---- Ubuntu ----
+    - name: Install dependencies for CRI-O repo (Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - curl
+          - gpg
+          - apt-transport-https
+        state: present
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add CRI-O GPG key (Ubuntu)
+      ansible.builtin.shell: |
+        curl -fsSL https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/deb/Release.key |
+        gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg --yes
+      args:
+        creates: /etc/apt/keyrings/cri-o-apt-keyring.gpg
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add CRI-O apt repository (Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
+          https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/deb/ /
+        state: present
+        filename: cri-o
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Install CRI-O (Ubuntu)
+      ansible.builtin.apt:
+        name: cri-o
+        state: present
+        update_cache: true
+      when: ansible_distribution == 'Ubuntu'
+
+    # ---- RHEL / CentOS / Fedora ----
+    - name: Add CRI-O package repo (RHEL/CentOS/Fedora)
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/cri-o.repo"
+        dest: /etc/yum.repos.d/cri-o.repo
+        mode: "0644"
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+
+    - name: Install CRI-O (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name: cri-o
+        state: present
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+
+    # ---- Enable and start CRI-O ----
+    - name: Enable and start CRI-O service
+      ansible.builtin.service:
+        name: crio
+        state: started
+        enabled: true

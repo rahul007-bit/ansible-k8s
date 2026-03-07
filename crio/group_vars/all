@@ -1,0 +1,4 @@
+---
+# CRI-O specific group vars
+# Note: 'runtime' variable is set in the main playbook (create_k8s.yml)
+# Do not override it here to avoid variable precedence conflicts

@@ -1,0 +1,9 @@
+[controlplane]
+host3 ansible_host=192.168.1.205 ansible_user=rahul
+host2 ansible_host=192.168.1.123 ansible_user=rahul
+
+[worker]
+# Add worker nodes here when you have more VMs
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3

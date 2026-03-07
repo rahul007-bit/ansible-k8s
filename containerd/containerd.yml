@@ -1,0 +1,104 @@
+---
+- when: runtime == "containerd"
+  block:
+    - name: Add GPG key for Docker
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+        keyring: /etc/apt/keyrings/docker.asc
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add repo for containerd on Ubuntu
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu
+          {{ ansible_distribution_release }} stable
+        state: present
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add Docker repository for Fedora
+      ansible.builtin.yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $basearch
+        baseurl: https://download.docker.com/linux/fedora/$releasever/$basearch/stable
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/fedora/gpg
+      when: ansible_distribution == "Fedora"
+
+    - name: Add Docker repository for RedHat
+      ansible.builtin.yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $basearch
+        baseurl: https://download.docker.com/linux/rhel/$releasever/$basearch/stable
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/rhel/gpg
+      when: ansible_distribution == "RedHat"
+
+    - name: Add Docker repository for CentOS
+      ansible.builtin.yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $basearch
+        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/centos/gpg
+      when: ansible_distribution == "CentOS"
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_distribution == 'Ubuntu'
+    - name: Install containerd on Ubuntu
+      ansible.builtin.package:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - containerd
+        - runc
+      when: ansible_distribution == 'Ubuntu'
+    - name: Install containerd on RHEL/CentOS/Fedora
+      ansible.builtin.dnf:
+        name: containerd
+        state: present
+      when: ansible_distribution in ['RedHat', 'CentOS', "Fedora"]
+    - name: Stop and disable CRI-O if present (switching to containerd)
+      ansible.builtin.service:
+        name: crio
+        state: stopped
+        enabled: false
+      ignore_errors: true
+      changed_when: false
+
+    - name: Generate default containerd configuration
+      ansible.builtin.command: containerd config default
+      register: containerd_default_config
+      changed_when: false
+
+    - name: Ensure /etc/containerd directory exists
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: "0755"
+
+    - name: Write default configuration to /etc/containerd/config.toml
+      ansible.builtin.copy:
+        content: "{{ containerd_default_config.stdout }}"
+        dest: /etc/containerd/config.toml
+        mode: "0644"
+      become: true
+
+    - name: Enable SystemdCgroup in containerd config
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: '(\[plugins\."io\.containerd\.grpc\.v1\.cri"\.containerd\.runtimes\.runc\.options\][\s\S]*?)SystemdCgroup\s*=\s*false'
+        replace: '\1SystemdCgroup = true'
+      become: true
+
+    - name: Restart containerd service
+      ansible.builtin.service:
+        name: containerd
+        state: restarted
+        enabled: true

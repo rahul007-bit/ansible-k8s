@@ -1,0 +1,188 @@
+---
+# Upgrade Kubernetes cluster to a new version
+# Usage: ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.32
+#
+# This playbook follows the official kubeadm upgrade procedure:
+# 1. Upgrade kubeadm on all nodes
+# 2. Run kubeadm upgrade on control plane nodes (apply on first, node on rest)
+# 3. Upgrade kubelet and kubectl on all nodes
+# 4. Restart kubelet
+
+- name: Upgrade Kubernetes Cluster
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1 # Upgrade one node at a time (rolling upgrade)
+  vars:
+    target_version: "" # REQUIRED: e.g., "1.32"
+    kube_user: "{{ ansible_user | default('ubuntu') }}"
+  pre_tasks:
+    - name: Fail if target_version is not set
+      ansible.builtin.fail:
+        msg: "You must specify target_version. Example: -e target_version=1.32"
+      when: target_version == ""
+
+    - name: Get current Kubernetes version
+      ansible.builtin.command: kubelet --version
+      register: current_kubelet_ver
+      changed_when: false
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Extract current minor version
+      ansible.builtin.set_fact:
+        current_minor: "{{ current_kubelet_ver.stdout | regex_search('v1\\.(\\d+)', '\\1') | first | int }}"
+        target_minor: "{{ target_version | regex_search('1\\.(\\d+)', '\\1') | first | int }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Check version gap
+      ansible.builtin.fail:
+        msg: >
+          Cannot upgrade from v1.{{ current_minor }} to v{{ target_version }} directly.
+          Kubernetes only supports upgrading one minor version at a time.
+          Current: v1.{{ current_minor }}, Target: v1.{{ target_minor }}, Gap: {{ target_minor | int - current_minor | int }}.
+          Please upgrade step by step (e.g., 1.{{ current_minor }} → 1.{{ current_minor | int + 1 }} → ...).
+      when:
+        - inventory_hostname == groups['controlplane'][0]
+        - (target_minor | int - current_minor | int) > 1
+
+  tasks:
+    # ---- Step 1: Update package repos to target version ----
+    - name: Download Kubernetes GPG key for target version (Ubuntu)
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/Release.key"
+        dest: /tmp/kubernetes-release-key-{{ target_version }}.gpg
+        mode: "0644"
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: De-armor and install Kubernetes GPG key (Ubuntu)
+      ansible.builtin.shell: >
+        gpg --batch --yes --dearmor
+        -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        /tmp/kubernetes-release-key-{{ target_version }}.gpg
+      when: ansible_distribution == 'Ubuntu'
+      changed_when: true
+
+    - name: Update Kubernetes repository to target version (Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/ /"
+        state: present
+        filename: kubernetes
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Update Kubernetes repository to target version (RHEL/CentOS/Fedora)
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/"
+        gpgcheck: true
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/repodata/repomd.xml.key"
+        enabled: true
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    # ---- Step 2: Upgrade kubeadm ----
+    - name: Update apt cache (Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Upgrade kubeadm (Ubuntu)
+      ansible.builtin.apt:
+        name: "kubeadm={{ target_version }}.*"
+        state: present
+        allow_downgrade: true
+        allow_change_held_packages: true
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Upgrade kubeadm (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name: "kubeadm-{{ target_version }}.*"
+        state: present
+        allow_downgrade: true
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+
+    - name: Check kubeadm version
+      ansible.builtin.command: kubeadm version -o short
+      register: kubeadm_ver
+      changed_when: false
+
+    - name: Show kubeadm version
+      ansible.builtin.debug:
+        msg: "kubeadm upgraded to {{ kubeadm_ver.stdout }}"
+
+    # ---- Step 3: kubeadm upgrade (control plane) ----
+    - name: Run kubeadm upgrade plan (first control plane only)
+      ansible.builtin.command: kubeadm upgrade plan
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      when: inventory_hostname == groups['controlplane'][0]
+      register: upgrade_plan
+      changed_when: false
+
+    - name: Show upgrade plan
+      ansible.builtin.debug:
+        msg: "{{ upgrade_plan.stdout_lines | default(['No plan output']) }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Apply kubeadm upgrade (first control plane only)
+      ansible.builtin.command: kubeadm upgrade apply {{ kubeadm_ver.stdout }} --yes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      when: inventory_hostname == groups['controlplane'][0]
+      register: upgrade_apply
+      changed_when: "'SUCCESS' in (upgrade_apply.stdout | default(''))"
+
+    - name: Show upgrade apply output
+      ansible.builtin.debug:
+        msg: "{{ upgrade_apply.stdout_lines | default(['No apply output']) }}"
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Upgrade additional control plane nodes
+      ansible.builtin.command: kubeadm upgrade node
+      when:
+        - inventory_hostname in groups['controlplane']
+        - inventory_hostname != groups['controlplane'][0]
+      changed_when: true
+
+    - name: Upgrade worker nodes
+      ansible.builtin.command: kubeadm upgrade node
+      when: inventory_hostname in groups.get('worker', [])
+      changed_when: true
+
+    # ---- Step 4: Upgrade kubelet and kubectl ----
+    - name: Upgrade kubelet and kubectl (Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - "kubelet={{ target_version }}.*"
+          - "kubectl={{ target_version }}.*"
+        state: present
+        allow_downgrade: true
+        allow_change_held_packages: true
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Upgrade kubelet and kubectl (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name:
+          - "kubelet-{{ target_version }}.*"
+          - "kubectl-{{ target_version }}.*"
+        state: present
+        allow_downgrade: true
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+
+    # ---- Step 5: Restart kubelet ----
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart kubelet
+      ansible.builtin.service:
+        name: kubelet
+        state: restarted
+
+    - name: Check kubelet version
+      ansible.builtin.command: kubelet --version
+      register: kubelet_ver
+      changed_when: false
+
+    - name: Show upgraded versions
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ kubelet_ver.stdout }}"

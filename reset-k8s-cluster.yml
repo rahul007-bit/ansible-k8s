@@ -1,0 +1,89 @@
+---
+- name: Reset Kubernetes Cluster
+  hosts: all
+  become: true
+  vars:
+    kube_user: "{{ ansible_user | default('ubuntu') }}"
+  tasks:
+    # Step 1: Disable swap (if not already done)
+    - name: Disabling SWAP
+      ansible.builtin.command: swapoff --all
+      changed_when: false
+      when: ansible_distribution in ["Ubuntu", "Debian", "Fedora"]
+
+    - name: Disable SWAP permanently
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: ^([^#].*?\sswap\s+sw\s+.*)$
+        replace: "# \\1"
+      when: ansible_distribution in ["Ubuntu", "Debian", "Fedora"]
+
+    # Step 2: Reset Kubernetes using kubeadm
+    - name: Reset Kubernetes using kubeadm
+      ansible.builtin.command: kubeadm reset -f
+      register: reset_output
+      changed_when: "'reset successful' in (reset_output.stdout | default('') | lower)"
+      ignore_errors: true
+
+    - name: Show kubeadm reset output
+      ansible.builtin.debug:
+        msg: "{{ reset_output.stdout }}"
+
+    - name: Remove kubelet config
+      ansible.builtin.file:
+        path: /var/lib/kubelet/config.yaml
+        state: absent
+      ignore_errors: true
+
+    - name: Remove kubeconfig
+      ansible.builtin.file:
+        path: "~{{ kube_user }}/.kube/config"
+        state: absent
+      ignore_errors: true
+
+    # Step 3: Remove network configuration (flannel, calico, etc.)
+    - name: Remove network configuration files
+      ansible.builtin.file:
+        path: /etc/cni/net.d/{{ item }}
+        state: absent
+      loop:
+        - 10-flannel.conflist
+        - 10-calico.conflist
+      ignore_errors: true # Ignore errors if the files do not exist
+
+    # Step 4: Remove containerd containers (instead of Docker)
+    - name: Remove containerd containers related to Kubernetes
+      ansible.builtin.shell: crictl rm --all
+      ignore_errors: true
+      changed_when: false
+
+    - name: Remove Kubernetes container images
+      ansible.builtin.shell: crictl rmi --all
+      ignore_errors: true
+      changed_when: false
+
+    # Step 5: Remove Kubernetes directories and files
+    - name: Remove Kubernetes directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/kubelet
+        - /var/lib/etcd
+        - /var/run/kubernetes
+      ignore_errors: true
+
+    # Step 6: Reset firewall and network interfaces (Optional)
+    - name: Remove firewall rules related to Kubernetes
+      ansible.builtin.command: iptables -F
+      changed_when: false
+      ignore_errors: true
+
+    # Step 7: Stop and disable kubelet service
+    - name: Stop and disable kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        state: stopped
+        enabled: false
+      ignore_errors: true
