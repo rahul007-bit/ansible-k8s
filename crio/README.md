@@ -166,4 +166,28 @@ Only runs if the user passed `-e os_upgrade=true`. It tells `apt` to run equival
     state: present
 ```
 
-Installs core system dependencies that Kubernetes and the runtime download scripts rely on (like `curl` to fetch the GPG keys, and `apt-transport-https` so `apt` supports TLS repository URLs).
+Installs basic tools required for keyrings and downloading binaries.
+
+---
+
+## CRI-O Version Upgrades
+
+One of the major benefits of this playbook design is that you can upgrade the CRI-O runtime on a live cluster safely and easily.
+
+Because the installation tasks use `state: latest` and `force-overwrite`, you can push a CRI-O version upgrade across your entire node pool just by changing the variable and re-running the main create playback.
+
+To upgrade CRI-O (e.g. from `v1.28` to `v1.29`):
+
+1. Update `crio_version: "v1.29"` in `create_k8s.yml` (or pass it via `-e crio_version=v1.29`)
+2. Run standard cluster creation again:
+
+   ```bash
+   ansible-playbook -i hosts create_k8s.yml
+   ```
+
+3. The playbook will intelligently:
+   - Purge the old `v1.28` repo and load the new `v1.29` keys.
+   - Forcefully overwrite the binaries to the `v1.29` branch.
+   - Restart the `crio` daemon.
+
+*(Since CRI-O restarts so quickly, running pods will remain largely unaffected except for minor sandbox recreation, resulting in a zero-downtime runtime upgrade).*
