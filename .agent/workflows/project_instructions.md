@@ -52,6 +52,12 @@ When installing older (now EOL) Kubernetes versions (like `v1.28`), `pkgs.k8s.io
 
 Unlike Containerd, `cri-o` installed natively via packages will not always drop the networking `cni_plugins` dependencies (like `bridge` or `portmap`) into `/opt/cni/bin`. This results in pod sandbox errors. The `create_k8s.yml` playbook explicitly includes a safety check that curls the `containernetworking/plugins` release bundle if the CNI binaries are missing.
 
+### 5. RedHat Subscription Manager Fallbacks 
+
+When installing packages like `kubelet` or `cri-o` on RedHat 9 nodes without an active paid subscription, DNF will instantly crash with `Cannot download repomd.xml` due to 403 Forbidden errors hitting `appstream` and `codeready` nodes. 
+- You must always explicitly append `disablerepo: "rhel-*,codeready-*"` and `enablerepo: "kubernetes,crio"` to DNF tasks.
+- The Kubernetes package tasks currently inject a fallback generic `CentOS Stream 9` repository configuration into `hostvars` when this is detected to allow the OS to successfully resolve underlying AppStream C dependencies (like `socat` and `conntrack`).
+
 ---
 
 ## 🛠️ Developer & AI Agent Guidelines

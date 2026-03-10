@@ -51,28 +51,29 @@ Cleanly tears down the cluster for a fresh start:
 | 4 | Cleans up CNI config files (flannel, calico) |
 | 5 | Removes leftover containers and images via `crictl` |
 | 6 | Deletes Kubernetes directories (`/etc/kubernetes`, `/var/lib/kubelet`, etc.) |
-| 7 | Flushes iptables rules |
-| 8 | Stops and disables kubelet service |
+| 7 | **Flushes iptables rules** |
+| 8 | **Stops and disables kubelet service** |
+| 9 | **Optional Package Purge**: If `remove_packages=true`, uninstalls K8s/CRI-O packages and wipes repos/keys |
 
 ---
 
 ## Configurable Variables
 
-All variables are defined in `create_k8s.yml` under `vars:` and can be overridden at runtime with `-e`:
+All variables are defined in `vars/cluster_config.yml` and can be overridden at runtime with `-e`:
 
-| Variable | Default | Options | Description |
-| ---------- | --------- | --------- | ------------- |
-| `runtime` | `containerd` | `containerd`, `crio` | Container runtime to install |
-| `kube_version` | `1.32` | `1.32`, `1.31`, `1.30` | Kubernetes packages version |
-| `crio_version` | `v1.31` | `v1.31`, `v1.30` | CRI-O version (only used when `runtime: crio`) |
-| `cni_plugin` | `calico` | `calico`, `flannel` | CNI networking plugin |
-| `cni_version` | `v3.29.3` | Any valid release tag | Version of the CNI plugin |
-| `cni_plugins_version` | `v1.6.2` | Any valid release tag | Version of the CNI binaries for `/opt/cni/bin` |
+| `runtime` | `crio` | `containerd`, `crio` | Container runtime to install |
+| `kube_version` | `1.29` | Any version | Kubernetes packages version |
+| `crio_version` | `v1.29` | Any version | CRI-O version (only used when `runtime: crio`) |
+| `cni_plugin` | `flannel` | `calico`, `flannel` | CNI networking plugin |
+| `calico_version` | `v3.26.0` | Any version | Version of the Calico CNI plugin |
+| `flannel_version` | `v0.26.0` | Any version | Version of the Flannel CNI plugin |
+| `cni_plugins_version` | `v1.6.2` | Any version | Version of the CNI binaries for `/opt/cni/bin` |
 | `pod_network_cidr` | Auto-set | Any CIDR | Pod network range (auto-set based on CNI) |
 | `kube_user` | `ansible_user` | Any username | User who owns kubeconfig |
 | `control_plane_endpoint` | First master's IP | Any IP/hostname | API server endpoint for HA |
 | `kubeconfig_on_all_cp` | `false` | `true`, `false` | Copy kubeconfig to all control plane nodes |
 | `os_upgrade` | `false` | `true`, `false` | Run full OS package upgrade (apt upgrade / dnf update) |
+| `remove_packages` | `false` | `true`, `false` | Purge K8s/CRI-O packages and repos during reset |
 
 ### Default Pod CIDRs (Auto-Selected)
 
@@ -146,8 +147,11 @@ ansible/
 │       └── os_updates.yml          # OS package updates
 ├── tasks/
 │   └── install_kubernetes.yml      # Shared: kubeadm, kubelet, kubectl install
+├── vars/
+│   └── cluster_config.yml          # Unified configuration file
 ├── create_k8s.yml                  # Main playbook: cluster creation
 ├── reset-k8s-cluster.yml           # Teardown playbook: cluster reset
+├── upgrade_k8s.yml                 # Rolling upgrade playbook
 └── hosts                           # Inventory file
 ```
 

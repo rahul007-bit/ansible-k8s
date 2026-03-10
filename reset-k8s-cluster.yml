@@ -2,8 +2,8 @@
 - name: Reset Kubernetes Cluster
   hosts: all
   become: true
-  vars:
-    kube_user: "{{ ansible_user | default('ubuntu') }}"
+  vars_files:
+    - vars/cluster_config.yml
   pre_tasks:
     - name: CONFIRM CLUSTER RESET
       ansible.builtin.pause:
@@ -99,4 +99,89 @@
         name: kubelet
         state: stopped
         enabled: false
+      ignore_errors: true
+
+    # Step 8: Stop and disable CRI-O service
+    - name: Stop and disable CRI-O service
+      ansible.builtin.systemd:
+        name: crio
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    # Step 9: Remove Kubernetes and CRI-O packages (Ubuntu)
+    - name: Remove Kubernetes and CRI-O packages (Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+          - kubernetes-cni
+          - cri-o
+          - cri-o-runc
+          - cri-tools
+        state: absent
+        purge: true
+      when: 
+        - ansible_distribution == 'Ubuntu'
+        - remove_packages | bool
+
+    # Step 10: Remove Kubernetes and CRI-O packages (RHEL/CentOS/Fedora)
+    - name: Remove Kubernetes and CRI-O packages (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+          - kubernetes-cni
+          - cri-o
+          - cri-tools
+        state: absent
+      when: 
+        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - remove_packages | bool
+      ignore_errors: true
+
+    # Step 11: Remove Repositories and Keys (Ubuntu)
+    - name: Remove apt repositories and keys (Ubuntu)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/kubernetes.list
+        - /etc/apt/sources.list.d/cri-o.list
+        - /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        - /etc/apt/keyrings/cri-o-apt-keyring.gpg
+        - /tmp/kubernetes-release-key.gpg
+        - /etc/apt/keyrings/kubernetes-apt-keyring.gpg~
+        - /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+      when: 
+        - ansible_distribution == 'Ubuntu'
+        - remove_packages | bool
+
+    # Step 12: Remove Repositories (RHEL/CentOS/Fedora)
+    - name: Remove yum repositories (RHEL/CentOS/Fedora)
+      ansible.builtin.file:
+        path: "/etc/yum.repos.d/{{ item }}"
+        state: absent
+      loop:
+        - kubernetes.repo
+        - crio.repo
+      when: 
+        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - remove_packages | bool
+
+    # Step 13: Remove CRI-O and containerd directories
+    - name: Remove container runtime directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/crio
+        - /var/lib/containers
+        - /opt/cni
+        - /var/lib/cni
+        - /var/log/containers
+        - /var/log/pods
+      when: remove_packages | bool
       ignore_errors: true

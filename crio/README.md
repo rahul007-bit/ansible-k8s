@@ -97,20 +97,20 @@ Instructs `apt` to fetch the new definitions and install the `cri-o` primary pac
 
 #### RedHat/CentOS/Fedora Execution Path
 
-#### Lines 46-52: Add CRI-O repository (Fedora/RHEL/CentOS)
+#### Lines 55-63: Add CRI-O repository (Fedora/RHEL/CentOS)
 
 ```yaml
-- name: Add CRI-O repository (Fedora/RHEL/CentOS)
+- name: Add CRI-O package repo (RHEL/CentOS/Fedora)
   ansible.builtin.yum_repository:
     name: crio
     description: CRI-O
-    baseurl: "https://pkgs.k8s.io/addons:/cri-o:/{{ crio_version }}/rpm/"
+    baseurl: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/"
     gpgcheck: true
-    gpgkey: "https://pkgs.k8s.io/addons:/cri-o:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
+    gpgkey: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
     enabled: true
 ```
 
-The RHEL-equivalent of adding the `cri-o.repo` to `/etc/yum.repos.d/`.
+The OpenSUSE Build Service (`pkgs.k8s.io`) does not natively provide a downloadable `.repo` template file for the `stable` branches. We use Ansible's native `yum_repository` module to dynamically build the RHEL/CentOS equivalent of `/etc/yum.repos.d/crio.repo`.
 
 #### Lines 55-60: Install CRI-O package (RHEL/CentOS/Fedora)
 

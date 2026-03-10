@@ -3,25 +3,8 @@
   hosts: all
   become: true
   gather_facts: true
-  vars:
-    runtime: crio
-    kube_user: "{{ ansible_user | default('ubuntu') }}"
-    kube_version: "1.28" # Kubernetes version (e.g., 1.32, 1.31, 1.30)
-    crio_version: "v1.29" # CRI-O version (e.g., v1.31, v1.30)
-    cni_plugins_version: "v1.6.2" # Version for /opt/cni/bin binaries
-    cni_plugin: flannel # Options: calico, flannel
-    calico_version: v3.26.0
-    flannel_version: v0.26.0
-    cni_manifest_urls:
-      calico: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
-      flannel: "https://github.com/flannel-io/flannel/releases/download/{{ flannel_version }}/kube-flannel.yml"
-    cni_default_cidrs:
-      calico: "192.168.0.0/16"
-      flannel: "10.244.0.0/16"
-    pod_network_cidr: "{{ cni_default_cidrs[cni_plugin] }}"
-    # HA settings
-    control_plane_endpoint: "{{ hostvars[groups['controlplane'][0]].ansible_host }}"
-    kubeconfig_on_all_cp: false # Set to true to copy kubeconfig to all control plane nodes
+  vars_files:
+    - vars/cluster_config.yml
   tasks:
     - name: Importing basic setup tasks
       ansible.builtin.include_tasks: basic_setup/system_settings.yml
@@ -48,12 +31,18 @@
 
     - name: Download and extract CNI plugins
       ansible.builtin.unarchive:
-        src: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
+        src: "{{ cni_plugins_url }}"
         dest: /opt/cni/bin
         remote_src: true
       when: not cni_bin_check.stat.exists
 
     # ---- Control Plane Init (first master only) ----
+    - name: Check if Kubernetes is already initialized
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: kube_admin_conf
+      when: inventory_hostname == groups['controlplane'][0]
+
     - name: Init cluster on first control plane node
       ansible.builtin.command: >-
         kubeadm init
@@ -63,12 +52,28 @@
       register: output_init
       failed_when: output_init.rc != 0 and 'already exists' not in (output_init.stderr | default(''))
       changed_when: output_init.rc == 0
+      when: 
+        - inventory_hostname == groups['controlplane'][0]
+        - not (kube_admin_conf.stat.exists | default(false))
+
+    - name: "#########################################################"
+      ansible.builtin.debug:
+        msg: "##### KUBERNETES INIT OUTPUT #####"
       when: inventory_hostname == groups['controlplane'][0]
 
-    - name: Show init output
+    - name: Show init success/output
       ansible.builtin.debug:
-        msg: "{{ output_init.stdout if output_init.stdout is defined else 'No init output available' }}"
-      when: inventory_hostname == groups['controlplane'][0]
+        var: output_init.stdout_lines
+      when: 
+        - inventory_hostname == groups['controlplane'][0]
+        - output_init.stdout_lines is defined
+
+    - name: Show init errors (if any)
+      ansible.builtin.debug:
+        var: output_init.stderr_lines
+      when: 
+        - inventory_hostname == groups['controlplane'][0]
+        - output_init.stderr_lines is defined and (output_init.stderr_lines | length > 0)
 
     # ---- Kubeconfig on first master ----
     - name: Ensure .kube directory exists (first control plane)
@@ -120,6 +125,12 @@
       when: inventory_hostname == groups['controlplane'][0]
       changed_when: false
 
+    - name: Check if node is already joined (non-primary master)
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+      when: inventory_hostname != groups['controlplane'][0]
+
     - name: Join additional control plane nodes
       ansible.builtin.command: >-
         {{ hostvars[groups['controlplane'][0]].join_command.stdout }}
@@ -129,9 +140,18 @@
         - inventory_hostname in groups['controlplane']
         - inventory_hostname != groups['controlplane'][0]
         - hostvars[groups['controlplane'][0]].join_command.stdout is defined
+        - not (kubelet_conf.stat.exists | default(false))
       register: cp_join_output
       failed_when: cp_join_output.rc != 0 and 'already exists' not in (cp_join_output.stderr | default(''))
       changed_when: cp_join_output.rc == 0
+
+    - name: Show Control Plane Join Output
+      ansible.builtin.debug:
+        var: cp_join_output.stdout_lines
+      when: 
+        - inventory_hostname in groups['controlplane']
+        - inventory_hostname != groups['controlplane'][0]
+        - cp_join_output.stdout_lines is defined
 
     # ---- Kubeconfig on additional control plane nodes (optional) ----
     - name: Ensure .kube directory exists (additional control plane)
@@ -168,7 +188,17 @@
     - name: Join worker nodes
       ansible.builtin.command: "{{ hostvars[groups['controlplane'][0]].join_command.stdout }}"
       when:
-        - inventory_hostname in groups.get('worker', [])
+        - inventory_hostname in groups['worker']
+        - hostvars[groups['controlplane'][0]].join_command is defined
+        - not hostvars[groups['controlplane'][0]].join_command.skipped | default(false)
+        - not (kubelet_conf.stat.exists | default(false))
       register: worker_join_output
       failed_when: worker_join_output.rc != 0 and 'already exists' not in (worker_join_output.stderr | default(''))
       changed_when: worker_join_output.rc == 0
+
+    - name: Show Worker Join Output
+      ansible.builtin.debug:
+        var: worker_join_output.stdout_lines
+      when: 
+        - inventory_hostname in groups['worker']
+        - worker_join_output.stdout_lines is defined

@@ -13,9 +13,8 @@
   become: true
   gather_facts: true
   serial: 1 # Upgrade one node at a time (rolling upgrade)
-  vars:
-    target_version: "1.29" # REQUIRED: e.g., "1.32"
-    kube_user: "{{ ansible_user | default('ubuntu') }}"
+  vars_files:
+    - vars/cluster_config.yml
   pre_tasks:
     - name: Fail if target_version is not set
       ansible.builtin.fail:
@@ -107,7 +106,10 @@
 
     - name: Show kubeadm version
       ansible.builtin.debug:
-        msg: "kubeadm upgraded to {{ kubeadm_ver.stdout }}"
+        msg: 
+          - "#########################################################"
+          - "SUCCESS: kubeadm upgraded to {{ kubeadm_ver.stdout }}"
+          - "#########################################################"
 
     # ---- Step 3: kubeadm upgrade (control plane) ----
     - name: Run kubeadm upgrade plan (first control plane only)
@@ -136,6 +138,11 @@
         msg: "{{ upgrade_apply.stdout_lines | default(['No apply output']) }}"
       when: inventory_hostname == groups['controlplane'][0]
 
+    - name: "#########################################################"
+      ansible.builtin.debug:
+        msg: "##### DRAINING NODE: {{ ansible_hostname }} #####"
+      delegate_to: "{{ groups['controlplane'][0] }}"
+
     - name: Drain node before upgrade
       ansible.builtin.command: >
         kubectl drain {{ ansible_hostname }}
@@ -145,13 +152,19 @@
         --grace-period=60
         --timeout=5m
       environment:
-        KUBECONFIG: /home/{{ kube_user }}/.kube/config
+        KUBECONFIG: /etc/kubernetes/admin.conf
       delegate_to: "{{ groups['controlplane'][0] }}"
       retries: 3
       delay: 10
       register: drain_result
       until: drain_result.rc == 0
       changed_when: true
+
+    - name: Show Drain Output
+      ansible.builtin.debug:
+        var: drain_result.stdout_lines
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      when: drain_result.stdout_lines is defined
 
     - name: Upgrade additional control plane nodes
       ansible.builtin.command: kubeadm upgrade node
@@ -198,9 +211,16 @@
     - name: Uncordon node after upgrade
       ansible.builtin.command: kubectl uncordon {{ ansible_hostname }}
       environment:
-        KUBECONFIG: /home/{{ kube_user }}/.kube/config
+        KUBECONFIG: /etc/kubernetes/admin.conf
       delegate_to: "{{ groups['controlplane'][0] }}"
+      register: uncordon_result
       changed_when: true
+
+    - name: Show Uncordon Output
+      ansible.builtin.debug:
+        var: uncordon_result.stdout_lines
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      when: uncordon_result.stdout_lines is defined
 
     - name: Check kubelet version
       ansible.builtin.command: kubelet --version

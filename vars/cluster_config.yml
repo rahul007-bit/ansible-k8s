@@ -1,0 +1,39 @@
+# vars/cluster_config.yml
+
+# --- Global Settings ---
+kube_user: "{{ ansible_user | default('ubuntu') }}"
+
+# --- Installation Settings (create_k8s.yml) ---
+runtime: crio  # Options: crio, containerd
+kube_version: "1.29"
+crio_version: "v1.29"
+cni_plugins_version: "v1.6.2"
+cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
+
+# --- Networking Settings ---
+cni_plugin: flannel  # Options: calico, flannel
+calico_version: v3.26.0
+flannel_version: v0.26.0
+
+# These are internal mappings for CNI manifests and CIDRs
+# You can modify them if you need custom manifests or CIDRs
+cni_manifest_urls:
+  calico: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+  flannel: "https://github.com/flannel-io/flannel/releases/download/{{ flannel_version }}/kube-flannel.yml"
+
+cni_default_cidrs:
+  calico: "192.168.0.0/16"
+  flannel: "10.244.0.0/16"
+
+# If pod_network_cidr is not specified, it will use the default from above
+pod_network_cidr: "{{ cni_default_cidrs[cni_plugin] }}"
+
+# --- High Availability Settings ---
+control_plane_endpoint: "{{ hostvars[groups['controlplane'][0]].ansible_host }}" # Auto-set to first master, override for LB
+kubeconfig_on_all_cp: false
+
+# --- Reset Settings (reset-k8s-cluster.yml) ---
+remove_packages: false
+
+# --- Upgrade Settings (upgrade_k8s.yml) ---
+# target_version: "1.29" # Should typically be passed via -e at runtime

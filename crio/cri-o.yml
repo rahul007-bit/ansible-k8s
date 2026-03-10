@@ -53,17 +53,28 @@
       when: ansible_distribution == 'Ubuntu'
 
     # ---- RHEL / CentOS / Fedora ----
+    - name: Remove broken legacy cri-o.repo (RHEL/CentOS/Fedora)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/cri-o.repo
+        state: absent
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+
     - name: Add CRI-O package repo (RHEL/CentOS/Fedora)
-      ansible.builtin.get_url:
-        url: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/cri-o.repo"
-        dest: /etc/yum.repos.d/cri-o.repo
-        mode: "0644"
+      ansible.builtin.yum_repository:
+        name: crio
+        description: CRI-O
+        baseurl: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/"
+        gpgcheck: true
+        gpgkey: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
+        enabled: true
       when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
 
     - name: Install CRI-O (RHEL/CentOS/Fedora)
       ansible.builtin.dnf:
-        name: cri-o
-        state: latest
+        name: "cri-o-{{ crio_version | regex_replace('^v', '') }}.*"
+        state: present
+        disablerepo: "rhel-*,codeready-*"
+        allow_downgrade: true
       when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
 
     # ---- Enable and start CRI-O ----

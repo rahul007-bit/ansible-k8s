@@ -40,8 +40,9 @@ Because some runtimes (like pristine CRI-O + Flannel) do not automatically popul
 
 ### Phase 5: Cluster Bootstrapping (Control Plane 1)
 
-1. **Kubeadm Init:** Executes `kubeadm init` with the calculated `--pod-network-cidr`, `--control-plane-endpoint` (first master IP), and `--upload-certs`.
-2. **Kubeconfig Access:** Creates `~/.kube/config` and copies `admin.conf` so the specified `kube_user` has `kubectl` administrative access.
+1. **Idempotency Check:** Checks if `/etc/kubernetes/admin.conf` already exists. If it does, the initialization is skipped.
+2. **Kubeadm Init:** Executes `kubeadm init` with the calculated `--pod-network-cidr`, `--control-plane-endpoint` (first master IP), and `--upload-certs`.
+3. **Kubeconfig Access:** Creates `~/.kube/config` and copies `admin.conf` so the specified `kube_user` has `kubectl` administrative access.
 
 ### Phase 6: Networking (CNI)
 
@@ -52,16 +53,18 @@ Because some runtimes (like pristine CRI-O + Flannel) do not automatically popul
 
 *(Only executes if there are multiple nodes under `[controlplane]` in the inventory)*
 
-1. Uploads certificate keys to the first master and generates a fresh join command.
-2. Additional control plane nodes execute `kubeadm join --control-plane --certificate-key ...`.
-3. Distributes `admin.conf` to additional control plane nodes (if `kubeconfig_on_all_cp` is true).
+1. **Idempotency Check:** Checks if `/etc/kubernetes/kubelet.conf` already exists. If it does, the join specialized for this node is skipped.
+2. **Upload Certs:** Uploads certificate keys to the first master and generates a fresh join command.
+3. **Node Join:** Additional control plane nodes execute `kubeadm join --control-plane --certificate-key ...`.
+4. Distributes `admin.conf` to additional control plane nodes (if `kubeconfig_on_all_cp` is true).
 
 ### Phase 8: Joining Workers
 
 *(Only executes for nodes under `[worker]` in the inventory)*
 
-1. Generates a standard `--discovery-token-ca-cert-hash` join string.
-2. Workers execute `kubeadm join` to securely attach themselves to the cluster.
+1. **Idempotency Check:** Checks if `/etc/kubernetes/kubelet.conf` already exists. If it does, the join specialized for this node is skipped.
+2. **Join Tokens:** Generates a standard `--discovery-token-ca-cert-hash` join string.
+3. **Node Join:** Workers and additional control planes execute `kubeadm join` to securely attach themselves to the cluster.
 
 ---
 
@@ -100,3 +103,7 @@ This playbook tears down the environment safely. It is highly destructive.
 3. **Clean Configurations:** Hard deletes the master's `/etc/kubernetes/` directories, `/var/lib/kubelet/config.yaml`, and the user's `~/.kube/config`.
 4. **Wipe CNI State:** Removes interface configuration files located in `/etc/cni/net.d/` (`10-calico.conflist`, `10-flannel.conflist`).
 5. **Flush Container Runtimes:** Executes `crictl rm --all`, `crictl rmp --all`, and `crictl rmi --all` to permanently delete all stopped containers, active pods, and cached images left over by Kubernetes components.
+6. **Optional Package Purge:** If `remove_packages` is set to `true`, the playbook also:
+   - Uninstalls `kubelet`, `kubeadm`, `kubectl`, and `cri-o` (including configuration purging on Ubuntu).
+   - Deletes all package manager repository files and GPG keyrings.
+   - Wipes all leftover runtime data directories (`/var/lib/containers`, `/var/lib/cni`, etc.).

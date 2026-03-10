@@ -86,7 +86,7 @@ worker1 ansible_host=192.168.1.124 ansible_user=rahul
 
 ## Tweaking the Playbook Variables
 
-All the main settings live in `create_k8s.yml` under the `vars:` section. You can either edit them directly in the file, or override them at runtime using `-e` on the command line (no file changes needed).
+All the main settings live in `vars/cluster_config.yml`. You can either edit them directly in that file, or override them at runtime using `-e` on the command line (overrides the file).
 
 ### Container Runtime
 
@@ -105,7 +105,7 @@ To switch to CRI-O:
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change runtime: containerd → runtime: crio in create_k8s.yml
+# Change runtime: containerd → runtime: crio in vars/cluster_config.yml
 
 # Option B: Override at runtime (no file changes)
 ansible-playbook -i hosts create_k8s.yml -e runtime=crio
@@ -121,7 +121,7 @@ This controls which version of `kubeadm`, `kubelet`, and `kubectl` gets installe
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change kube_version: "1.32" → kube_version: "1.30" in create_k8s.yml
+# Change kube_version: "1.32" → kube_version: "1.30" in vars/cluster_config.yml
 
 # Option B: Override at runtime
 ansible-playbook -i hosts create_k8s.yml -e kube_version=1.30
@@ -139,7 +139,7 @@ Only used when `runtime: crio`. Controls which CRI-O package version gets instal
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change crio_version: "v1.31" → crio_version: "v1.30" in create_k8s.yml
+# Change crio_version: "v1.31" → crio_version: "v1.30" in vars/cluster_config.yml
 
 # Option B: Override at runtime
 ansible-playbook -i hosts create_k8s.yml -e runtime=crio -e crio_version=v1.30
@@ -168,7 +168,7 @@ To switch to Flannel:
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change cni_plugin: calico → cni_plugin: flannel in create_k8s.yml
+# Change cni_plugin: calico → cni_plugin: flannel in vars/cluster_config.yml
 # Make sure flannel_version is set to a valid release (e.g. v0.26.0)
 
 # Option B: Override at runtime (no file changes)
@@ -177,7 +177,7 @@ ansible-playbook -i hosts create_k8s.yml \
   -e flannel_version=v0.26.0
 ```
 
-> **Important**: The `cni_version` must be a valid release tag from the CNI project. Calico versions look like `v3.29.3` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.4` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
+> **Important**: The `calico_version` or `flannel_version` must be a valid release tag from the respective project. Calico versions look like `v3.29.3` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.4` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
 
 ### CNI Plugins Binaries Version
 
@@ -189,7 +189,7 @@ This controls the exact version of the standard CNI plugin binaries (like `bridg
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change cni_plugins_version: "v1.6.2" → cni_plugins_version: "v1.9.0" in create_k8s.yml
+# Change cni_plugins_version: "v1.6.2" → cni_plugins_version: "v1.9.0" in vars/cluster_config.yml
 
 # Option B: Override at runtime
 ansible-playbook -i hosts create_k8s.yml -e cni_plugins_version=v1.9.0
@@ -229,7 +229,7 @@ kubeconfig_on_all_cp: false
 
 ```bash
 # Option A: Edit the file (recommended)
-# Change kubeconfig_on_all_cp: false → kubeconfig_on_all_cp: true in create_k8s.yml
+# Change kubeconfig_on_all_cp: false → kubeconfig_on_all_cp: true in vars/cluster_config.yml
 
 # Option B: Override at runtime
 ansible-playbook -i hosts create_k8s.yml -e kubeconfig_on_all_cp=true
@@ -245,6 +245,18 @@ The playbook always updates the package cache (`apt update`), but skips the full
 
 ```bash
 ansible-playbook -i hosts create_k8s.yml -e os_upgrade=true
+```
+
+### Optional Package Removal (Reset)
+
+```yaml
+remove_packages: false  # Set to true to purge Kubernetes and CRI-O packages
+```
+
+By default, the `reset-k8s-cluster.yml` playbook resets cluster configuration and files but leaves the base packages (kubeadm, kubelet, kubectl, cri-o) installed. Enable this if you want a completely clean slate including repository removal.
+
+```bash
+ansible-playbook -i hosts reset-k8s-cluster.yml -e remove_packages=true
 ```
 
 ---
@@ -263,6 +275,8 @@ ansible-playbook -i hosts create_k8s.yml \
   -e cni_plugin=flannel \
   -e flannel_version=v0.26.0
 ```
+
+> **Note**: The creation playbook is **idempotent**. If a node is already part of the cluster or the control plane is already initialized, it will safely skip those steps. This makes it safe to run multiple times or to add new nodes to an existing cluster.
 
 ### Reset a cluster
 
@@ -347,7 +361,7 @@ ansible-playbook -i hosts create_k8s.yml
 
 ### Scenario 3: Use Flannel instead of Calico
 
-Decide which CNI you want **before** creating the cluster. Edit `cni_plugin` and `cni_version` in `create_k8s.yml`, then run:
+Decide which CNI you want **before** creating the cluster. Edit `cni_plugin` and `cni_version` in `vars/cluster_config.yml`, then run:
 
 ```bash
 ansible-playbook -i hosts create_k8s.yml
@@ -370,6 +384,8 @@ ansible-playbook -i hosts create_k8s.yml
    ```bash
    ansible-playbook -i hosts create_k8s.yml --limit host4
    ```
+
+> **Pro Tip**: Because the playbook is idempotent, you can also just run the full `ansible-playbook -i hosts create_k8s.yml`. It will detect that your existing nodes are already configured and only perform the setup on the new `host4`.
 
 ### Scenario 5: HA cluster with multiple masters
 
@@ -403,7 +419,7 @@ ansible-playbook -i hosts create_k8s.yml
 | What you want | Command |
 | ------------- | ------- |
 | Create cluster (defaults) | `ansible-playbook -i hosts create_k8s.yml` |
-| Create with Flannel | `ansible-playbook -i hosts create_k8s.yml -e cni_plugin=flannel -e cni_version=v0.26.4` |
+| Create with Flannel | `ansible-playbook -i hosts create_k8s.yml -e cni_plugin=flannel -e flannel_version=v0.26.4` |
 | Create with CRI-O | `ansible-playbook -i hosts create_k8s.yml -e runtime=crio` |
 | Kubeconfig on all masters | `ansible-playbook -i hosts create_k8s.yml -e kubeconfig_on_all_cp=true` |
 | With OS upgrade | `ansible-playbook -i hosts create_k8s.yml -e os_upgrade=true` |

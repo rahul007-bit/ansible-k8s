@@ -64,6 +64,7 @@
       - "kubectl-{{ kube_version }}.*"
     state: present
     allow_downgrade: true
+    disablerepo: "rhel-*,codeready-*"
   when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
 
 - name: Enabling kubelet service
