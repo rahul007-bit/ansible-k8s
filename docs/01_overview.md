@@ -61,6 +61,13 @@ Cleanly tears down the cluster for a fresh start:
 
 All variables are defined in `vars/cluster_config.yml` and can be overridden at runtime with `-e`:
 
+| Variable | Default | Options | Description |
+| ---------- | --------- | --------- | ------------- |
+| `offline_install` | `false` | `true`, `false` | Enable offline installation mode |
+| `offline_pkg_type` | `zip` | `zip`, `dir` | Type of package source |
+| `offline_pkg_source` | `controller` | `controller`, `remote` | Where the packages are located |
+| `offline_pkg_path` | `k8s_rpm.zip` | Path | Path to zip/dir (local or remote) |
+| `remote_pkg_dir` | `/tmp/k8s_packages` | Path | Directory on remote node for packages |
 | `runtime` | `crio` | `containerd`, `crio` | Container runtime to install |
 | `kube_version` | `1.29` | Any version | Kubernetes packages version |
 | `crio_version` | `v1.29` | Any version | CRI-O version (only used when `runtime: crio`) |

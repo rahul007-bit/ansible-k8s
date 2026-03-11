@@ -3,10 +3,18 @@
 # --- Global Settings ---
 kube_user: "{{ ansible_user | default('ubuntu') }}"
 
+# --- Offline Installation Settings ---
+offline_install: false
+offline_pkg_type: "zip"               # Options: "zip" or "dir"
+offline_pkg_source: "controller"      # Options: "controller" (transfer from host) or "remote" (already on server)
+offline_pkg_path: "k8s_rpm.zip"       # Local path (if source=controller) or Remote path (if source=remote)
+remote_pkg_dir: "/tmp/k8s_packages"  # Directory on remote node to store/extract packages
+ignore_preflight_errors: ""  # Errors to ignore during kubeadm init/join
+
 # --- Installation Settings (create_k8s.yml) ---
 runtime: crio  # Options: crio, containerd
-kube_version: "1.29"
-crio_version: "v1.29"
+kube_version: "1.26"
+crio_version: "v1.26"
 cni_plugins_version: "v1.6.2"
 cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
 
@@ -36,4 +44,4 @@ kubeconfig_on_all_cp: false
 remove_packages: false
 
 # --- Upgrade Settings (upgrade_k8s.yml) ---
-# target_version: "1.29" # Should typically be passed via -e at runtime
+target_version: "1.30" # Should typically be passed via -e at runtime

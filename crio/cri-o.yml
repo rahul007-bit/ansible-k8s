@@ -52,12 +52,14 @@
         dpkg_options: 'force-overwrite'
       when: ansible_distribution == 'Ubuntu'
 
-    # ---- RHEL / CentOS / Fedora ----
+    # ---- RHEL / CentOS / Fedora (Online)----
     - name: Remove broken legacy cri-o.repo (RHEL/CentOS/Fedora)
       ansible.builtin.file:
         path: /etc/yum.repos.d/cri-o.repo
         state: absent
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+      when: 
+        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - not offline_install
 
     - name: Add CRI-O package repo (RHEL/CentOS/Fedora)
       ansible.builtin.yum_repository:
@@ -67,15 +69,32 @@
         gpgcheck: true
         gpgkey: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
         enabled: true
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+      when: 
+        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - not offline_install
 
     - name: Install CRI-O (RHEL/CentOS/Fedora)
       ansible.builtin.dnf:
         name: "cri-o-{{ crio_version | regex_replace('^v', '') }}.*"
         state: present
-        disablerepo: "rhel-*,codeready-*"
         allow_downgrade: true
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+      when: 
+        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - not offline_install
+
+    # ---- Offline Installation (RPM) ----
+    - name: Install CRI-O from local files (Offline - RPM)
+      ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+      when: 
+        - offline_install
+        - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    # ---- Offline Installation (DEB) ----
+    - name: Install CRI-O from local files (Offline - DEB)
+      ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/cri-o*.deb || apt-get install -f -y"
+      when: 
+        - offline_install
+        - ansible_distribution == 'Ubuntu'
 
     # ---- Enable and start CRI-O ----
     - name: Enable and start CRI-O service

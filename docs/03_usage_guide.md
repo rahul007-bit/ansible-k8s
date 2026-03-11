@@ -428,3 +428,49 @@ ansible-playbook -i hosts create_k8s.yml
 | Verbose mode | `ansible-playbook -i hosts create_k8s.yml -vvv` |
 | Run on one host | `ansible-playbook -i hosts create_k8s.yml --limit host2` |
 | Upgrade cluster | `ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31` |
+
+## Offline Installation
+
+The playbook supports installing Kubernetes and CRI-O using pre-downloaded packages (RPM/DEB). This is useful for environments with restricted or no internet access.
+
+### Configuration
+
+All offline settings are in `vars/cluster_config.yml`:
+
+```yaml
+offline_install: true
+offline_pkg_type: "zip"               # Options: "zip" or "dir"
+offline_pkg_source: "controller"      # Options: "controller" (transfer from host) or "remote" (already on server)
+offline_pkg_path: "k8s_rpm.zip"       # Path to the zip file or directory
+remote_pkg_dir: "/tmp/k8s_packages"  # Where packages will be stored/extracted on remote nodes
+```
+
+### Scenarios
+
+#### Scenario 1: Upload and Install (Zip)
+
+If you have a zip file (like `k8s_rpm.zip`) on your local machine:
+
+1. Set `offline_install: true` in `vars/cluster_config.yml`.
+2. Set `offline_pkg_source: "controller"`.
+3. Set `offline_pkg_type: "zip"`.
+4. Run the playbook: `ansible-playbook -i hosts create_k8s.yml`
+
+#### Scenario 2: Install from pre-uploaded Zip on Remote
+
+If the zip file is already located at `/opt/k8s_rpm.zip` on all remote nodes:
+
+1. Set `offline_install: true`.
+2. Set `offline_pkg_source: "remote"`.
+3. Set `offline_pkg_path: "/opt/k8s_rpm.zip"`.
+4. Run the playbook.
+
+#### Scenario 3: Install from pre-extracted Directory on Remote
+
+If packages are already extracted to `/opt/k8s_repo` on all remote nodes:
+
+1. Set `offline_install: true`.
+2. Set `offline_pkg_source: "remote"`.
+3. Set `offline_pkg_type: "dir"`.
+4. Set `remote_pkg_dir: "/opt/k8s_repo"`.
+5. Run the playbook.

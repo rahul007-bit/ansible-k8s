@@ -34,7 +34,9 @@
         src: "{{ cni_plugins_url }}"
         dest: /opt/cni/bin
         remote_src: true
-      when: not cni_bin_check.stat.exists
+      when: 
+        - not (cni_bin_check.stat.exists | default(false))
+        - not offline_install
 
     # ---- Control Plane Init (first master only) ----
     - name: Check if Kubernetes is already initialized
@@ -49,6 +51,7 @@
         --pod-network-cidr={{ pod_network_cidr }}
         --control-plane-endpoint={{ control_plane_endpoint }}:6443
         --upload-certs
+        --ignore-preflight-errors={{ ignore_preflight_errors }}
       register: output_init
       failed_when: output_init.rc != 0 and 'already exists' not in (output_init.stderr | default(''))
       changed_when: output_init.rc == 0
@@ -96,8 +99,19 @@
       when: inventory_hostname == groups['controlplane'][0]
 
     # ---- Apply CNI ----
-    - name: Apply CNI {{ cni_plugin }} ({{ cni_version }})
-      ansible.builtin.command: kubectl apply -f {{ cni_manifest_urls[cni_plugin] }}
+    - name: Transfer CNI manifest (Offline)
+      ansible.builtin.copy:
+        src: "kube-{{ cni_plugin }}.yml"
+        dest: "/tmp/kube-{{ cni_plugin }}.yml"
+        mode: "0644"
+      when: 
+        - inventory_hostname == groups['controlplane'][0]
+        - offline_install
+
+    - name: Apply CNI {{ cni_plugin }}
+      ansible.builtin.command: >-
+        kubectl apply -f 
+        {% if offline_install %}/tmp/kube-{{ cni_plugin }}.yml{% else %}{{ cni_manifest_urls[cni_plugin] }}{% endif %}
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
       when: inventory_hostname == groups['controlplane'][0]
@@ -136,6 +150,7 @@
         {{ hostvars[groups['controlplane'][0]].join_command.stdout }}
         --control-plane
         --certificate-key {{ hostvars[groups['controlplane'][0]].certificate_key }}
+        --ignore-preflight-errors={{ ignore_preflight_errors }}
       when:
         - inventory_hostname in groups['controlplane']
         - inventory_hostname != groups['controlplane'][0]
@@ -186,7 +201,7 @@
       when: hostvars[groups['controlplane'][0]].join_command.stdout is defined
 
     - name: Join worker nodes
-      ansible.builtin.command: "{{ hostvars[groups['controlplane'][0]].join_command.stdout }}"
+      ansible.builtin.command: "{{ hostvars[groups['controlplane'][0]].join_command.stdout }} --ignore-preflight-errors={{ ignore_preflight_errors }}"
       when:
         - inventory_hostname in groups['worker']
         - hostvars[groups['controlplane'][0]].join_command is defined

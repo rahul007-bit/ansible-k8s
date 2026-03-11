@@ -2,48 +2,86 @@
 # Shared task: Install Kubernetes packages (kubeadm, kubelet, kubectl)
 # Uses kube_version variable from create_k8s.yml (e.g., "1.32")
 
-- name: Ensure keyrings directory exists (Ubuntu)
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: "0755"
-  when: ansible_distribution == 'Ubuntu'
+- name: Handle Offline Package Preparation
+  when: offline_install
+  block:
+    - name: Ensure remote package directory exists
+      ansible.builtin.file:
+        path: "{{ remote_pkg_dir }}"
+        state: directory
+        mode: "0755"
 
-- name: Download Kubernetes GPG key (Ubuntu)
-  ansible.builtin.get_url:
-    url: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/Release.key"
-    dest: /tmp/kubernetes-release-key.gpg
-    mode: "0644"
-  when: ansible_distribution == 'Ubuntu'
+    - name: Transfer and extract packages from Controller (Zip)
+      ansible.builtin.unarchive:
+        src: "{{ offline_pkg_path }}"
+        dest: "{{ remote_pkg_dir }}"
+        remote_src: false
+      when: 
+        - offline_pkg_source == 'controller'
+        - offline_pkg_type == 'zip'
 
-- name: De-armor and install Kubernetes GPG key (Ubuntu)
-  ansible.builtin.shell: >
-    gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-release-key.gpg
-  args:
-    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  when: ansible_distribution == 'Ubuntu'
+    - name: Extract packages already on Remote (Zip)
+      ansible.builtin.unarchive:
+        src: "{{ offline_pkg_path }}"
+        dest: "{{ remote_pkg_dir }}"
+        remote_src: true
+      when: 
+        - offline_pkg_source == 'remote'
+        - offline_pkg_type == 'zip'
 
-- name: Install Kubernetes repository (Ubuntu)
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/ /"
-    state: present
-    filename: kubernetes
-  when: ansible_distribution == 'Ubuntu'
+    - name: Transfer packages from Controller (Directory)
+      ansible.builtin.copy:
+        src: "{{ offline_pkg_path }}/"
+        dest: "{{ remote_pkg_dir }}/"
+      when: 
+        - offline_pkg_source == 'controller'
+        - offline_pkg_type == 'dir'
 
-- name: Update apt cache (Ubuntu)
-  ansible.builtin.apt:
-    update_cache: true
-  when: ansible_distribution == 'Ubuntu'
+- name: Setup Repositories (Online)
+  when: not offline_install
+  block:
+    - name: Ensure keyrings directory exists (Ubuntu)
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      when: ansible_distribution == 'Ubuntu'
 
-- name: Install Kubernetes repository (Fedora/RHEL/CentOS)
-  ansible.builtin.yum_repository:
-    name: kubernetes
-    description: Kubernetes
-    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/rpm/"
-    gpgcheck: true
-    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/rpm/repodata/repomd.xml.key"
-    enabled: true
-  when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - name: Download Kubernetes GPG key (Ubuntu)
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/Release.key"
+        dest: /tmp/kubernetes-release-key.gpg
+        mode: "0644"
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: De-armor and install Kubernetes GPG key (Ubuntu)
+      ansible.builtin.shell: >
+        gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-release-key.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Install Kubernetes repository (Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/ /"
+        state: present
+        filename: kubernetes
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Update apt cache (Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Install Kubernetes repository (Fedora/RHEL/CentOS)
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/rpm/"
+        gpgcheck: true
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/rpm/repodata/repomd.xml.key"
+        enabled: true
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
 
 - name: Installing kubelet, kubeadm, and kubectl (Ubuntu)
   ansible.builtin.apt:
@@ -54,7 +92,9 @@
     state: present
     allow_downgrade: true
     allow_change_held_packages: true
-  when: ansible_distribution == 'Ubuntu'
+  when: 
+    - ansible_distribution == 'Ubuntu'
+    - not offline_install
 
 - name: Installing kubelet, kubeadm, and kubectl (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
@@ -64,8 +104,21 @@
       - "kubectl-{{ kube_version }}.*"
     state: present
     allow_downgrade: true
-    disablerepo: "rhel-*,codeready-*"
-  when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+  when: 
+    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - not offline_install
+
+- name: Installing Kubernetes packages from local files (Offline - RPM)
+  ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+  when: 
+    - offline_install
+    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+- name: Installing Kubernetes packages from local files (Offline - DEB)
+  ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/*.deb || apt-get install -f -y"
+  when: 
+    - offline_install
+    - ansible_distribution == 'Ubuntu'
 
 - name: Enabling kubelet service
   ansible.builtin.service:
