@@ -1,9 +1,9 @@
 [controlplane]
-host1 ansible_host=192.168.1.108 ansible_user=root
+redhat-master ansible_host=192.168.1.178 ansible_user=root
 
 [worker]
 # Add worker nodes here when you have more VMs
-host2 ansible_host=192.168.1.106 ansible_user=root
+redhat-worker ansible_host=192.168.1.176 ansible_user=root
 #host3 ansible_host=192.168.1.166 ansible_user=rahul
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3

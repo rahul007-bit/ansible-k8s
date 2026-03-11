@@ -13,8 +13,8 @@ ignore_preflight_errors: ""  # Errors to ignore during kubeadm init/join
 
 # --- Installation Settings (create_k8s.yml) ---
 runtime: crio  # Options: crio, containerd
-kube_version: "1.26"
-crio_version: "v1.26"
+kube_version: "1.28"
+crio_version: "v1.28"
 cni_plugins_version: "v1.6.2"
 cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
 
@@ -22,6 +22,23 @@ cni_plugins_url: "https://github.com/containernetworking/plugins/releases/downlo
 cni_plugin: flannel  # Options: calico, flannel
 calico_version: v3.26.0
 flannel_version: v0.26.0
+
+# --- Firewall Settings ---
+firewall_enabled: true
+firewall_allowed_ports_common:
+  - { port: "6443", proto: "tcp" }         # Kubernetes API server
+  - { port: "2379-2380", proto: "tcp" }    # etcd server client API
+  - { port: "10250", proto: "tcp" }        # Kubelet API
+  - { port: "10251", proto: "tcp" }        # kube-scheduler
+  - { port: "10252", proto: "tcp" }        # kube-controller-manager
+  - { port: "30000-32767", proto: "tcp" }  # NodePort Services
+
+firewall_allowed_ports_cni:
+  calico:
+    - { port: "179", proto: "tcp" }        # Calico BGP
+    - { port: "4789", proto: "udp" }       # Calico VXLAN
+  flannel:
+    - { port: "8472", proto: "udp" }       # Flannel VXLAN
 
 # These are internal mappings for CNI manifests and CIDRs
 # You can modify them if you need custom manifests or CIDRs

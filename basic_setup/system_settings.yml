@@ -1,5 +1,30 @@
 ---
 - block:
+    - name: Set system hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Configure firewalld ports (RHEL/Fedora)
+      ansible.posix.firewalld:
+        port: "{{ item.port }}/{{ item.proto }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      loop: "{{ firewall_allowed_ports_common + firewall_allowed_ports_cni[cni_plugin] }}"
+      when: 
+        - firewall_enabled | bool
+        - ansible_distribution in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+
+    - name: Configure ufw ports (Ubuntu/Debian)
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port | string | replace('-', ':') }}"
+        proto: "{{ item.proto }}"
+      loop: "{{ firewall_allowed_ports_common + firewall_allowed_ports_cni[cni_plugin] }}"
+      when: 
+        - firewall_enabled | bool
+        - ansible_distribution in ["Ubuntu", "Debian"]
+
     - name: Setup networking of kubernetes
       ansible.builtin.blockinfile:
         path: /etc/modules-load.d/containerd.conf
@@ -32,40 +57,33 @@
       become: true
       ansible.builtin.command: sysctl --system
       changed_when: false
-    - name: Disable swap for Ubuntu
+    - name: Disable swap immediately
       ansible.builtin.command: swapoff -a
       changed_when: false
-      when: ansible_distribution == "Ubuntu"
 
-    - name: Disable swap permanently for Ubuntu
+    - name: Disable swap permanently in fstab
       ansible.builtin.replace:
         path: /etc/fstab
-        regexp: ^([^#].*?\sswap\s+sw\s+.*)$
-        replace: "# \\1"
-      when: ansible_distribution == "Ubuntu"
+        regexp: '^([^#\n]+\s+swap\s+.*)$'
+        replace: '# \1'
 
-    - name: Disable swap for Fedora and other systems with ZRAM
-      ansible.builtin.command: swapoff -a
-      changed_when: false
-      when: ansible_distribution in ["Fedora", "CentOS", "RHEL"]
-
-    - name: Uninstall zram-generator package (Fedora, CentOS, RHEL)
+    - name: Uninstall zram-generator package (Fedora, CentOS, RedHat)
       ansible.builtin.package:
         name: zram-generator-defaults
         state: absent
-      when: ansible_distribution in ["Fedora", "CentOS", "RHEL"]
+      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
       become: true
 
-    - name: Ensure ZRAM swap is disabled permanently (Fedora, CentOS, RHEL)
+    - name: Ensure ZRAM swap is disabled permanently (Fedora, CentOS, RedHat)
       ansible.builtin.replace:
         path: /etc/fstab
         regexp: ^([^#].*?\szram\s+.*)$
         replace: "# \\1"
-      when: ansible_distribution in ["Fedora", "CentOS", "RHEL"]
+      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
 
-    - name: Remove any ZRAM swap configuration files (Fedora, CentOS, RHEL)
+    - name: Remove any ZRAM swap configuration files (Fedora, CentOS, RedHat)
       ansible.builtin.file:
         path: /etc/systemd/system/zram.service
         state: absent
-      when: ansible_distribution in ["Fedora", "CentOS", "RHEL"]
+      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
       become: true

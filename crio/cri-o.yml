@@ -78,6 +78,7 @@
         name: "cri-o-{{ crio_version | regex_replace('^v', '') }}.*"
         state: present
         allow_downgrade: true
+        disable_gpg_check: true
       when: 
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
         - not offline_install
