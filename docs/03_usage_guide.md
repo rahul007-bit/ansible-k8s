@@ -18,6 +18,7 @@ Once your prerequisites are in place (see `02_prerequisites.md`), you're ready t
   - [Kube User](#kube-user)
   - [HA Settings](#ha-settings)
   - [OS Upgrade](#os-upgrade)
+  - [Firewall Configuration](#firewall-configuration)
 - [Running the Playbooks](#running-the-playbooks)
   - [Create a cluster](#create-a-cluster)
   - [Reset a cluster](#reset-a-cluster)
@@ -114,7 +115,7 @@ ansible-playbook -i hosts create_k8s.yml -e runtime=crio
 ### Kubernetes Version
 
 ```yaml
-kube_version: "1.32"  # e.g., 1.32, 1.31, 1.30
+kube_version: "1.35"  # e.g., 1.35, 1.34, 1.33
 ```
 
 This controls which version of `kubeadm`, `kubelet`, and `kubectl` gets installed. The version determines which `pkgs.k8s.io` repository is used.
@@ -132,7 +133,7 @@ ansible-playbook -i hosts create_k8s.yml -e kube_version=1.30
 ### CRI-O Version
 
 ```yaml
-crio_version: "v1.31"  # e.g., v1.31, v1.30
+crio_version: "v1.35"  # e.g., v1.35, v1.34
 ```
 
 Only used when `runtime: crio`. Controls which CRI-O package version gets installed.
@@ -142,10 +143,10 @@ Only used when `runtime: crio`. Controls which CRI-O package version gets instal
 # Change crio_version: "v1.31" → crio_version: "v1.30" in vars/cluster_config.yml
 
 # Option B: Override at runtime
-ansible-playbook -i hosts create_k8s.yml -e runtime=crio -e crio_version=v1.30
+ansible-playbook -i hosts create_k8s.yml -e runtime=crio -e crio_version=v1.34
 ```
 
-> **Note**: Use the format `v1.31` (with `v` prefix). Check [CRI-O releases](https://github.com/cri-o/cri-o/releases) for available versions.
+> **Note**: Use the format `v1.35` (with `v` prefix). Check [CRI-O releases](https://github.com/cri-o/cri-o/releases) for available versions.
 
 ### CNI Plugin (Networking)
 
@@ -177,7 +178,7 @@ ansible-playbook -i hosts create_k8s.yml \
   -e flannel_version=v0.26.0
 ```
 
-> **Important**: The `calico_version` or `flannel_version` must be a valid release tag from the respective project. Calico versions look like `v3.29.3` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.4` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
+> **Important**: The `calico_version` or `flannel_version` must be a valid release tag from the respective project. Calico versions look like `v3.26.0` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.0` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
 
 ### CNI Plugins Binaries Version
 
@@ -247,6 +248,29 @@ The playbook always updates the package cache (`apt update`), but skips the full
 ansible-playbook -i hosts create_k8s.yml -e os_upgrade=true
 ```
 
+### Firewall Configuration
+
+```yaml
+firewall_enabled: true
+```
+
+The playbook includes automated firewall configuration for `ufw` (Ubuntu/Debian) and `firewalld` (RHEL/Fedora/CentOS). By default, it opens all required Kubernetes and CNI ports.
+
+| Setting | Default | Description |
+| ------- | ------- | ----------- |
+| `firewall_enabled` | `true` | Whether to automatically manage firewall rules |
+| `firewall_allowed_ports_common` | (Port list) | Core K8s ports (API, etcd, etc.) |
+| `firewall_allowed_ports_cni` | (Port list) | CNI-specific ports (VXLAN, BGP) |
+
+To disable automated firewall management:
+
+```bash
+ansible-playbook -i hosts create_k8s.yml -e firewall_enabled=false
+```
+
+> [!TIP]
+> If you have an external firewall or corporate security policy, you might want to disable this and configure your rules manually based on the ports listed in `02_prerequisites.md`.
+
 ### Optional Package Removal (Reset)
 
 ```yaml
@@ -301,8 +325,8 @@ Use `upgrade_k8s.yml` to perform automated, zero-downtime rolling upgrades of yo
 The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kubectl drain` before upgrading packages, ensuring your applications experience zero downtime.
 
 ```bash
-# Example: Upgrading from v1.30.x to v1.31.x
-ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31
+# Example: Upgrading from v1.34.x to v1.35.x
+ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.35
 ```
 
 ### Dry run (check mode)

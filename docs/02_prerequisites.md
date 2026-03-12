@@ -334,11 +334,11 @@ Ensure the following network requirements are met on **all nodes**:
 
 ### Ports that must be open
 
-| Component | Port(s) | Protocol | Used By |
-| --------- | --------- | --------- | --------- |
 | Kubernetes API | 6443 | TCP | `kubeadm`, `kubectl` |
 | etcd | 2379-2380 | TCP | Control plane |
 | kubelet | 10250 | TCP | All nodes |
+| kube-scheduler | 10251 | TCP | Control plane |
+| kube-controller-manager | 10252 | TCP | Control plane |
 | NodePort range | 30000-32767 | TCP | Workers (optional) |
 | Calico BGP | 179 | TCP | Calico CNI |
 | Calico VXLAN | 4789 | UDP | Calico CNI |

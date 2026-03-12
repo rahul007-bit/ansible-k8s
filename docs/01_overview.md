@@ -30,7 +30,7 @@ System Prep → K8s Packages → Container Runtime → kubeadm init → CNI → 
 
 | # | Stage | What Happens | Runs On |
 | --- | ------- | ------------- | --------- |
-| 1 | **System Preparation** | Loads kernel modules (`overlay`, `br_netfilter`), sets sysctl params, disables swap | All nodes |
+| 1 | **System Preparation** | Loads kernel modules (`overlay`, `br_netfilter`), sets sysctl params, disables swap, configures firewall | All nodes |
 | 2 | **Kubernetes Packages** | Installs `kubeadm`, `kubelet`, `kubectl` from `pkgs.k8s.io` | All nodes |
 | 3 | **Container Runtime** | Installs & configures the selected runtime (containerd or CRI-O) | All nodes |
 | 4 | **Cluster Init** | Runs `kubeadm init` with `--control-plane-endpoint` and `--upload-certs` | First control plane only |
@@ -69,8 +69,8 @@ All variables are defined in `vars/cluster_config.yml` and can be overridden at 
 | `offline_pkg_path` | `k8s_rpm.zip` | Path | Path to zip/dir (local or remote) |
 | `remote_pkg_dir` | `/tmp/k8s_packages` | Path | Directory on remote node for packages |
 | `runtime` | `crio` | `containerd`, `crio` | Container runtime to install |
-| `kube_version` | `1.29` | Any version | Kubernetes packages version |
-| `crio_version` | `v1.29` | Any version | CRI-O version (only used when `runtime: crio`) |
+| `kube_version` | `1.35` | Any version | Kubernetes packages version |
+| `crio_version` | `v1.35` | Any version | CRI-O version (only used when `runtime: crio`) |
 | `cni_plugin` | `flannel` | `calico`, `flannel` | CNI networking plugin |
 | `calico_version` | `v3.26.0` | Any version | Version of the Calico CNI plugin |
 | `flannel_version` | `v0.26.0` | Any version | Version of the Flannel CNI plugin |

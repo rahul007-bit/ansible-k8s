@@ -54,7 +54,7 @@ Creates the `/etc/apt/keyrings` folder. Modern `apt` security requires third-par
     mode: "0644"
 ```
 
-Fetches the official signing key for the specific Kubernetes minor version (e.g., `v1.32`) requested in the playbook variables.
+Fetches the official signing key for the specific Kubernetes minor version (e.g., `v1.35`) requested in the playbook variables.
 
 #### Lines 18-24: De-armor and install Kubernetes GPG key (Ubuntu)
 

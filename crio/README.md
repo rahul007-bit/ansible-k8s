@@ -50,18 +50,13 @@ Because the `create_k8s.yml` logic defaults to trying containerd or might be run
 #### Lines 12-22: Download CRI-O GPG keys (Ubuntu)
 
 ```yaml
-- name: Download CRI-O RPM GPG key (Ubuntu)
-  ansible.builtin.get_url:
-    url: "https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key"
-    dest: /tmp/crio-Release.key
-    mode: "0644"
-
-- name: De-armor CRI-O GPG key (Ubuntu)
-  ansible.builtin.shell: >
-    cat /tmp/crio-Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+- name: Add CRI-O GPG key (Ubuntu)
+  ansible.builtin.shell: |
+    curl -fsSL https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/deb/Release.key |
+    gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg --yes
 ```
 
-Similar to Kubernetes, `cri-o` publishes its repository keys. We fetch the official GPG key for the pre-release/stable branches and de-armor it into `/etc/apt/keyrings/cri-o-apt-keyring.gpg` so `apt` implicitly trusts the downloaded packages.
+Similar to Kubernetes, `cri-o` publishes its repository keys. We fetch the official GPG key for the stable branches and de-armor it into `/etc/apt/keyrings/cri-o-apt-keyring.gpg` so `apt` implicitly trusts the downloaded packages.
 
 #### Lines 25-32: Add CRI-O repository (Ubuntu)
 
@@ -73,7 +68,7 @@ Similar to Kubernetes, `cri-o` publishes its repository keys. We fetch the offic
   ansible.builtin.apt_repository:
     repo: >-
       deb [trusted=yes signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
-      https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/deb/ /
+      https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/deb/ /
     state: present
     filename: cri-o
 ```
@@ -104,13 +99,13 @@ Instructs `apt` to fetch the new definitions and install the `cri-o` primary pac
   ansible.builtin.yum_repository:
     name: crio
     description: CRI-O
-    baseurl: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/"
+    baseurl: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/rpm/"
     gpgcheck: true
-    gpgkey: "https://pkgs.k8s.io/addons:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
+    gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
     enabled: true
 ```
 
-The OpenSUSE Build Service (`pkgs.k8s.io`) does not natively provide a downloadable `.repo` template file for the `stable` branches. We use Ansible's native `yum_repository` module to dynamically build the RHEL/CentOS equivalent of `/etc/yum.repos.d/crio.repo`.
+The OpenSUSE Build Service (`download.opensuse.org`) does not natively provide a downloadable `.repo` template file for the `stable` branches. We use Ansible's native `yum_repository` module to dynamically build the RHEL/CentOS equivalent of `/etc/yum.repos.d/crio.repo`.
 
 #### Lines 55-60: Install CRI-O package (RHEL/CentOS/Fedora)
 
@@ -176,9 +171,9 @@ One of the major benefits of this playbook design is that you can upgrade the CR
 
 Because the installation tasks use `state: latest` and `force-overwrite`, you can push a CRI-O version upgrade across your entire node pool just by changing the variable and re-running the main create playback.
 
-To upgrade CRI-O (e.g. from `v1.28` to `v1.29`):
+To upgrade CRI-O (e.g. from `v1.34` to `v1.35`):
 
-1. Update `crio_version: "v1.29"` in `create_k8s.yml` (or pass it via `-e crio_version=v1.29`)
+1. Update `crio_version: "v1.35"` in `create_k8s.yml` (or pass it via `-e crio_version=v1.35`)
 2. Run standard cluster creation again:
 
    ```bash
@@ -186,8 +181,8 @@ To upgrade CRI-O (e.g. from `v1.28` to `v1.29`):
    ```
 
 3. The playbook will intelligently:
-   - Purge the old `v1.28` repo and load the new `v1.29` keys.
-   - Forcefully overwrite the binaries to the `v1.29` branch.
+   - Purge the old `v1.34` repo and load the new `v1.35` keys.
+   - Forcefully overwrite the binaries to the `v1.35` branch.
    - Restart the `crio` daemon.
 
 *(Since CRI-O restarts so quickly, running pods will remain largely unaffected except for minor sandbox recreation, resulting in a zero-downtime runtime upgrade).*
