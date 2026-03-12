@@ -13,8 +13,8 @@ ignore_preflight_errors: ""  # Errors to ignore during kubeadm init/join
 
 # --- Installation Settings (create_k8s.yml) ---
 runtime: crio  # Options: crio, containerd
-kube_version: "1.28"
-crio_version: "v1.28"
+kube_version: "1.35"
+crio_version: "v1.35"
 cni_plugins_version: "v1.6.2"
 cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
 
