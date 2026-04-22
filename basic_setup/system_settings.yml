@@ -68,9 +68,10 @@
         replace: '# \1'
 
     - name: Uninstall zram-generator package (Fedora, CentOS, RedHat)
-      ansible.builtin.package:
+      ansible.builtin.dnf:
         name: zram-generator-defaults
         state: absent
+        disablerepo: "{{ '*' if offline_install | default(false) else omit }}"
       when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
       become: true
 
