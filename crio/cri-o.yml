@@ -85,7 +85,7 @@
 
     # ---- Offline Installation (RPM) ----
     - name: Install CRI-O from local files (Offline - RPM)
-      ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+      ansible.builtin.shell: "dnf install -y --disablerepo=* --exclude=systemd* $(find {{ remote_pkg_dir }} -name '*.rpm')"
       when: 
         - offline_install
         - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
@@ -103,3 +103,11 @@
         name: crio
         state: started
         enabled: true
+
+    # ---- Load container images offline ----
+    - name: Load offline container images into Podman/CRI-O storage
+      ansible.builtin.shell: |
+        for img in "{{ remote_images_dir }}"/*.tar; do
+          podman load -i "$img"
+        done
+      become: true

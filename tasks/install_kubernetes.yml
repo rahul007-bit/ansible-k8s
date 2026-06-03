@@ -11,6 +11,12 @@
         state: directory
         mode: "0755"
 
+    - name: Ensure remote images directory exists
+      ansible.builtin.file:
+        path: "{{ remote_images_dir }}"
+        state: directory
+        mode: "0755"
+
     - name: Transfer and extract packages from Controller (Zip)
       ansible.builtin.unarchive:
         src: "{{ offline_pkg_path }}"
@@ -31,8 +37,16 @@
 
     - name: Transfer packages from Controller (Directory)
       ansible.builtin.copy:
-        src: "{{ offline_pkg_path }}/"
+        src: "{{ offline_pkg_path }}/rpms/"
         dest: "{{ remote_pkg_dir }}/"
+      when: 
+        - offline_pkg_source == 'controller'
+        - offline_pkg_type == 'dir'
+
+    - name: Transfer images from Controller (Directory)
+      ansible.builtin.copy:
+        src: "{{ offline_pkg_path }}/images/"
+        dest: "{{ remote_images_dir }}/"
       when: 
         - offline_pkg_source == 'controller'
         - offline_pkg_type == 'dir'
@@ -118,7 +132,7 @@
     - not offline_install
 
 - name: Installing Kubernetes packages from local files (Offline - RPM)
-  ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+  ansible.builtin.shell: "dnf install -y --disablerepo=* --exclude=systemd* $(find {{ remote_pkg_dir }} -name '*.rpm')"
   when: 
     - offline_install
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']

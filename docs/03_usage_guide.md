@@ -459,15 +459,42 @@ The playbook supports installing Kubernetes and CRI-O using pre-downloaded packa
 
 ### Configuration
 
-All offline settings are in `vars/cluster_config.yml`:
+All offline settings are configured in `vars/cluster_config.yml`. Below are the two supported configurations:
 
+#### Option 1: Directory-based Offline Install (Recommended)
+This approach allows installing from a pre-extracted, structured directory layout containing separate folders for RPMs and container images.
+```yaml
+offline_install: true
+offline_pkg_type: "dir"               # Options: "zip" or "dir"
+offline_pkg_source: "remote"          # Options: "controller" (transfer from host) or "remote" (already on server)
+offline_pkg_path: "/home/{{ kube_user }}/k8s_packages"  # Root directory path of offline bundle
+remote_pkg_dir: "/home/{{ kube_user }}/k8s_packages/rpms"  # Where RPM packages are stored on remote nodes
+remote_images_dir: "/home/{{ kube_user }}/k8s_packages/images"  # Where container image tars are stored on remote nodes
+```
+
+#### Option 2: Zip-based Offline Install
+This approach uses a single zip/tar archive containing all packages.
 ```yaml
 offline_install: true
 offline_pkg_type: "zip"               # Options: "zip" or "dir"
 offline_pkg_source: "controller"      # Options: "controller" (transfer from host) or "remote" (already on server)
-offline_pkg_path: "k8s_rpm.zip"       # Path to the zip file or directory
-remote_pkg_dir: "/tmp/k8s_packages"  # Where packages will be stored/extracted on remote nodes
+offline_pkg_path: "k8s_rpm.zip"       # Path to the zip file or archive
+remote_pkg_dir: "/tmp/k8s_packages"   # Temp directory on remote nodes to extract packages
 ```
+
+> [!WARNING]
+> When using `offline_pkg_type: "dir"`, the directory MUST be structured with two folders:
+> 1. `rpms/` - contains the RPMs to be installed. **Do not include systemd RPMs** in this folder as updating protected systemd packages on running RHEL9 nodes causes DNF transaction failures.
+> 2. `images/` - contains `.tar` files of container images (e.g. flannel, coredns) that are loaded into Podman/CRI-O storage automatically during installation.
+
+### Guidelines: When to use which option?
+
+| Setting | Choice | When to Use |
+| :--- | :--- | :--- |
+| **`offline_pkg_type`** | **`dir` (Recommended)** | When you want to manually manage or filter packages (e.g., stripping conflicting systemd RPMs), or want packages and container images organized into separate folders. |
+| | **`zip`** | When you want to deploy a single pre-packaged zip/tar file without extracting its components locally first. |
+| **`offline_pkg_source`** | **`controller`** | When packages are located on your local control node, and you want Ansible to copy them to the target nodes automatically during execution. |
+| | **`remote`** | When the packages are already pre-transferred (via SCP/shared mount) to all target nodes. This skips transfer overhead during the playbook execution (highly recommended for large OCI images over slow links). |
 
 ### Scenarios
 
@@ -491,10 +518,22 @@ If the zip file is already located at `/opt/k8s_rpm.zip` on all remote nodes:
 
 #### Scenario 3: Install from pre-extracted Directory on Remote
 
-If packages are already extracted to `/opt/k8s_repo` on all remote nodes:
+If packages are already extracted to `/home/jrspy/k8s_packages` on all remote nodes:
 
 1. Set `offline_install: true`.
 2. Set `offline_pkg_source: "remote"`.
 3. Set `offline_pkg_type: "dir"`.
-4. Set `remote_pkg_dir: "/opt/k8s_repo"`.
+4. Set `remote_pkg_dir: "/home/jrspy/k8s_packages/rpms"`.
+5. Set `remote_images_dir: "/home/jrspy/k8s_packages/images"`.
+6. Run the playbook.
+
+#### Scenario 4: Install from local Directory on Controller
+
+If the structured directory resides on your local deployment machine at `/path/to/k8s_packages`:
+
+1. Set `offline_install: true`.
+2. Set `offline_pkg_source: "controller"`.
+3. Set `offline_pkg_type: "dir"`.
+4. Set `offline_pkg_path: "/path/to/k8s_packages"`.
 5. Run the playbook.
+

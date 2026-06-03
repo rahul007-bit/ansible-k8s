@@ -4,11 +4,12 @@
 kube_user: "{{ ansible_user | default('ubuntu') }}"
 
 # --- Offline Installation Settings ---
-offline_install: false
-offline_pkg_type: "zip"               # Options: "zip" or "dir"
-offline_pkg_source: "controller"      # Options: "controller" (transfer from host) or "remote" (already on server)
-offline_pkg_path: "k8s_rpm.zip"       # Local path (if source=controller) or Remote path (if source=remote)
-remote_pkg_dir: "/tmp/k8s_packages"  # Directory on remote node to store/extract packages
+offline_install: true
+offline_pkg_type: "dir"               # Options: "zip" or "dir"
+offline_pkg_source: "remote"      # Options: "controller" (transfer from host) or "remote" (already on server)
+offline_pkg_path: "/home/{{ kube_user }}/k8s_packages"       # Local path (if source=controller) or Remote path (if source=remote)
+remote_pkg_dir: "/home/{{ kube_user }}/k8s_packages/rpms"  # Directory on remote node to store/extract packages
+remote_images_dir: "/home/{{ kube_user }}/k8s_packages/images"  # Directory on remote node containing container image tars
 ignore_preflight_errors: ""  # Errors to ignore during kubeadm init/join
 
 # --- Installation Settings (create_k8s.yml) ---
@@ -21,7 +22,7 @@ cni_plugins_url: "https://github.com/containernetworking/plugins/releases/downlo
 # --- Networking Settings ---
 cni_plugin: flannel  # Options: calico, flannel
 calico_version: v3.26.0
-flannel_version: v0.26.0
+flannel_version: v0.28.3
 
 # --- Firewall Settings ---
 firewall_enabled: true
