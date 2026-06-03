@@ -4,6 +4,25 @@
       ansible.builtin.hostname:
         name: "{{ inventory_hostname }}"
 
+    - name: Ensure SELinux is set to permissive mode
+      ansible.posix.selinux:
+        policy: targeted
+        state: permissive
+      when: ansible_os_family == 'RedHat'
+
+    - name: Disable SELinux immediately
+      ansible.builtin.command: setenforce 0
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == 'RedHat'
+
+    - name: Ensure hostname is resolvable in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}'
+        line: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }} {{ inventory_hostname }}"
+        state: present
+
     - name: Configure firewalld ports (RHEL/Fedora)
       ansible.posix.firewalld:
         port: "{{ item.port }}/{{ item.proto }}"
