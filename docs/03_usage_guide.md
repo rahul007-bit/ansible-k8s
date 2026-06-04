@@ -9,6 +9,7 @@ Once your prerequisites are in place (see `02_prerequisites.md`), you're ready t
   - [Adding more workers](#adding-more-workers)
   - [Multiple control plane nodes (HA)](#multiple-control-plane-nodes-ha)
 - [Tweaking the Playbook Variables](#tweaking-the-playbook-variables)
+  - [Automated Prerequisites](#automated-prerequisites)
   - [Container Runtime](#container-runtime)
   - [Kubernetes Version](#kubernetes-version)
   - [CRI-O Version](#cri-o-version)
@@ -20,6 +21,7 @@ Once your prerequisites are in place (see `02_prerequisites.md`), you're ready t
   - [OS Upgrade](#os-upgrade)
   - [Firewall Configuration](#firewall-configuration)
 - [Running the Playbooks](#running-the-playbooks)
+  - [Check prerequisites](#check-prerequisites)
   - [Create a cluster](#create-a-cluster)
   - [Reset a cluster](#reset-a-cluster)
   - [Upgrade a cluster](#upgrade-a-cluster)
@@ -88,6 +90,13 @@ worker1 ansible_host=192.168.1.124 ansible_user=rahul
 ## Tweaking the Playbook Variables
 
 All the main settings live in `vars/cluster_config.yml`. You can either edit them directly in that file, or override them at runtime using `-e` on the command line (overrides the file).
+
+### Automated Prerequisites
+
+```yaml
+run_prerequisites: true
+```
+If set to `true`, `create_k8s.yml` will automatically run pre-flight checks (CPU, RAM, Disks, Port Availability, and Node-to-Node Connectivity) before installing Kubernetes. See `05_prerequisites_playbook.md` for full details on configuring the `prereq_min_requirements` and `prereq_external_mounts`.
 
 ### Container Runtime
 
@@ -287,6 +296,14 @@ ansible-playbook -i hosts reset-k8s-cluster.yml -e remove_packages=true
 
 ## Running the Playbooks
 
+### Check prerequisites
+
+You can manually run the pre-flight checks without triggering an installation:
+
+```bash
+ansible-playbook -i hosts prerequisites.yml
+```
+
 ### Create a cluster
 
 ```bash
@@ -442,6 +459,7 @@ ansible-playbook -i hosts create_k8s.yml
 
 | What you want | Command |
 | ------------- | ------- |
+| Check Prerequisites | `ansible-playbook -i hosts prerequisites.yml` |
 | Create cluster (defaults) | `ansible-playbook -i hosts create_k8s.yml` |
 | Create with Flannel | `ansible-playbook -i hosts create_k8s.yml -e cni_plugin=flannel -e flannel_version=v0.26.4` |
 | Create with CRI-O | `ansible-playbook -i hosts create_k8s.yml -e runtime=crio` |

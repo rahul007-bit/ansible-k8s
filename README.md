@@ -18,11 +18,20 @@ The detailed guide for this project is split into several documents under the `d
 4. [**04. Top-Level Playbooks Breakdown**](docs/04_top_level_playbooks.md)
    - A descriptive, line-by-line explanation of each of the major top-level YAML playbooks.
 
+5. [**05. Prerequisites Playbook**](docs/05_prerequisites_playbook.md)
+   - Documentation for the automated `prerequisites.yml` playbook which validates system resources, network connectivity, and external mounts.
+
 ## 🚀 Quick Start
 
 Ensure your `hosts` inventory file is populated with your `[controlplane]` and `[worker]` nodes.
 
-Then execute the cluster creation playbook:
+First, you can optionally run the pre-flight checks independently:
+
+```bash
+ansible-playbook -i hosts prerequisites.yml
+```
+
+Then execute the cluster creation playbook (which will also run the prerequisites if enabled):
 
 ```bash
 ansible-playbook -i hosts create_k8s.yml

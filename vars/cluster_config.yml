@@ -3,6 +3,39 @@
 # --- Global Settings ---
 kube_user: "{{ ansible_user | default('ubuntu') }}"
 
+# --- Prerequisite Settings ---
+run_prerequisites: true
+
+prereq_min_requirements:
+  # You can define requirements by exact hostname (highest priority)
+  prod-rhel9-main:
+    ram_mb: 30000
+    cpu_cores: 16
+    disk_gb: 120
+  prod-rhel9-model:
+    ram_mb: 15000
+    cpu_cores: 4
+    disk_gb: 60
+  # Or you can define requirements by node group (fallback)
+  # controlplane:
+  #   ram_mb: 4000
+  #   cpu_cores: 2
+  #   disk_gb: 20
+  # worker:
+  #   ram_mb: 2000
+  #   cpu_cores: 2
+  #   disk_gb: 20
+
+prereq_external_mounts:
+  - path: /external-volume
+    nodes: "prod-rhel9-main"
+    min_size_gb: 120
+
+prereq_whitelisted_urls:
+  - "https://github.com"
+  - "https://private.azurecr.io"
+  - "https://google.com"
+
 # --- Offline Installation Settings ---
 offline_install: true
 offline_pkg_type: "dir"               # Options: "zip" or "dir"

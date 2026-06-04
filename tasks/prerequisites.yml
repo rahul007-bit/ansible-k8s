@@ -1,0 +1,299 @@
+---
+# ─────────────────────────────────────────────
+# Initialize summary dict for this node
+# ─────────────────────────────────────────────
+- name: Initialize summary facts
+  ansible.builtin.set_fact:
+    node_reqs: "{{ prereq_min_requirements[inventory_hostname] if inventory_hostname in prereq_min_requirements else prereq_min_requirements['controlplane'] if inventory_hostname in groups.get('controlplane', []) and 'controlplane' in prereq_min_requirements else prereq_min_requirements['worker'] if inventory_hostname in groups.get('worker', []) and 'worker' in prereq_min_requirements else {} }}"
+    _prereq_failures: []
+
+# ─────────────────────────────────────────────
+# 1. Resource Checks
+# ─────────────────────────────────────────────
+- name: Check Minimum CPU Cores
+  ansible.builtin.assert:
+    that:
+      - ansible_processor_vcpus >= node_reqs['cpu_cores']
+    fail_msg: "CPU FAIL: has {{ ansible_processor_vcpus }}, need {{ node_reqs['cpu_cores'] }}"
+    success_msg: "CPU OK"
+  when: node_reqs | length > 0
+  register: cpu_check
+  ignore_errors: true
+
+- name: Check Minimum RAM
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= node_reqs['ram_mb']
+    fail_msg: "RAM FAIL: has {{ ansible_memtotal_mb }}MB, need {{ node_reqs['ram_mb'] }}MB"
+    success_msg: "RAM OK"
+  when: node_reqs | length > 0
+  register: ram_check
+  ignore_errors: true
+
+- name: Check Minimum Root Disk Size
+  ansible.builtin.assert:
+    that:
+      - (item.size_total / 1073741824) >= node_reqs['disk_gb']
+    fail_msg: "Disk FAIL: {{ (item.size_total / 1073741824) | round(1) }}GB, need {{ node_reqs['disk_gb'] }}GB"
+    success_msg: "Disk OK"
+  loop: "{{ ansible_mounts }}"
+  when:
+    - node_reqs | length > 0
+    - item.mount == '/'
+  loop_control:
+    label: "{{ item.mount }}"
+  register: disk_check
+  ignore_errors: true
+
+- name: Collect resource failures
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + ['RESOURCE: ' + item] }}"
+  loop:
+    - "{{ cpu_check.msg | default('') if cpu_check.failed | default(false) else '' }}"
+    - "{{ ram_check.msg | default('') if ram_check.failed | default(false) else '' }}"
+    - "{{ (disk_check.results | default([]) | selectattr('failed','defined') | selectattr('failed') | map(attribute='msg') | join(', ')) }}"
+  when: item | length > 0
+
+# ─────────────────────────────────────────────
+# 2. External Mounts Check
+# ─────────────────────────────────────────────
+- name: Check External Mounts
+  ansible.builtin.assert:
+    that:
+      - "item.0.path in (ansible_mounts | map(attribute='mount') | list)"
+      - "((ansible_mounts | selectattr('mount', 'equalto', item.0.path) | first).size_total / 1073741824) >= item.0.min_size_gb"
+    fail_msg: "MOUNT FAIL: {{ item.0.path }} missing or < {{ item.0.min_size_gb }}GB"
+    success_msg: "Mount OK"
+  loop: "{{ prereq_external_mounts | default([]) | product([inventory_hostname]) | list }}"
+  when:
+    - item.0.nodes == 'all' or inventory_hostname in groups.get(item.0.nodes, []) or inventory_hostname == item.0.nodes
+  loop_control:
+    label: "{{ item.0.path }}"
+  register: mount_check
+  ignore_errors: true
+
+- name: Collect mount failures
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + [item.msg] }}"
+  loop: "{{ mount_check.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+  loop_control:
+    label: "{{ item.item[0].path | default('mount') }}"
+
+# ─────────────────────────────────────────────
+# 3. URL Whitelist Check
+# ─────────────────────────────────────────────
+- name: Check Whitelisted URLs
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: GET
+    timeout: 10
+    return_content: false
+    status_code: [200, 201, 301, 302, 400, 401, 403, 404, 500, 503]
+    validate_certs: false
+  loop: "{{ prereq_whitelisted_urls | default([]) }}"
+  register: url_check
+  failed_when: false
+  loop_control:
+    label: "{{ item }}"
+
+- name: Collect URL failures
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + ['URL UNREACHABLE: ' + item.item] }}"
+  loop: "{{ url_check.results | default([]) }}"
+  when: item.status is defined and item.status == -1
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─────────────────────────────────────────────
+# 4. Port Availability Check
+# ─────────────────────────────────────────────
+- name: Get list of ports to check
+  ansible.builtin.set_fact:
+    ports_to_check: "{{ firewall_allowed_ports_common + firewall_allowed_ports_cni[cni_plugin] }}"
+    port_conflicts: []
+    conflicting_ports: []
+
+- name: Check if ports are already in use
+  ansible.builtin.command: "ss -tulnp"
+  register: ss_output
+  changed_when: false
+  become: true
+
+- name: Parse port usage details
+  ansible.builtin.set_fact:
+    port_conflicts: "{{ port_conflicts | default([]) + [{
+      'port': item.port,
+      'proto': item.proto,
+      'line': ss_output.stdout | regex_search('.*:' ~ item.port ~ ' .*')
+    }] }}"
+  loop: "{{ ports_to_check }}"
+  when:
+    - "'-' not in (item.port | string)"
+    - "(':' ~ item.port ~ ' ') in ss_output.stdout"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+
+- name: Set known K8s process names
+  ansible.builtin.set_fact:
+    k8s_process_names:
+      - kube-apiserver
+      - kubelet
+      - kube-scheduler
+      - kube-controller-manager
+      - etcd
+      - flannel
+      - calico-node
+      - bird
+      - containerd
+      - crio
+
+- name: Classify port conflicts (K8s vs conflicting)
+  ansible.builtin.set_fact:
+    conflicting_ports: "{{ conflicting_ports | default([]) + [item] }}"
+  loop: "{{ port_conflicts | default([]) }}"
+  when:
+    - item.line is not none
+    - "'users:(' in item.line"
+    - k8s_process_names | select('in', item.line) | list | length == 0
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+
+- name: Collect port conflict failures
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + ['PORT CONFLICT: ' + item.port + '/' + item.proto + ' - ' + (item.line | trim)] }}"
+  loop: "{{ conflicting_ports | default([]) }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+
+- name: Compute port counts
+  ansible.builtin.set_fact:
+    _k8s_port_count: "{{ (port_conflicts | default([]) | length) - (conflicting_ports | default([]) | length) }}"
+    _conflict_port_count: "{{ conflicting_ports | default([]) | length }}"
+
+# ─────────────────────────────────────────────
+# 5. Port Connectivity Check (N-to-N)
+# ─────────────────────────────────────────────
+- name: Create temp directory for listener script
+  ansible.builtin.file:
+    path: /tmp/k8s_prereq
+    state: directory
+    mode: '0755'
+
+- name: Copy port listener script
+  ansible.builtin.copy:
+    src: scripts/port_listener.py
+    dest: /tmp/k8s_prereq/port_listener.py
+    mode: '0755'
+
+- name: Start port listener asynchronously
+  ansible.builtin.shell: >-
+    nohup python3 /tmp/k8s_prereq/port_listener.py 30
+    {% for p in ports_to_check %}
+    {{ p.proto }}:{{ p.port }}
+    {% endfor %}
+    > /tmp/k8s_prereq/listener.log 2>&1 &
+  async: 0
+  poll: 0
+  changed_when: false
+
+- name: Wait for listeners to initialize
+  ansible.builtin.pause:
+    seconds: 3
+
+- name: Check TCP Port Connectivity (N-to-N)
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[item.1].ansible_host | default(hostvars[item.1].ansible_default_ipv4.address) }}"
+    port: "{{ item.0.port | int }}"
+    timeout: 5
+    state: started
+  loop: "{{ ports_to_check | product(groups['all']) | list }}"
+  when:
+    - "item.0.proto == 'tcp'"
+    - "'-' not in (item.0.port | string)"
+    - "item.0.port | string not in ['10251', '10252']" # Kube scheduler/controller bind to localhost
+    - "inventory_hostname != item.1"
+  loop_control:
+    label: "{{ item.0.port }}/TCP → {{ item.1 }}"
+  ignore_errors: true
+  register: connectivity_check
+
+- name: Collect connectivity failures
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + ['CONNECTIVITY: port ' + (item.item[0].port | string) + '/TCP unreachable on ' + item.item[1]] }}"
+  loop: "{{ connectivity_check.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+  loop_control:
+    label: "{{ item.item[0].port }}/TCP → {{ item.item[1] }}"
+
+# ─────────────────────────────────────────────
+# 6. Print Summary
+# ─────────────────────────────────────────────
+- name: Print prerequisite summary
+  ansible.builtin.debug:
+    msg: |
+
+      ======================================================
+      K8S PRE-FLIGHT SUMMARY
+      ======================================================
+      Node  : {{ inventory_hostname }}
+      Group : {{ 'controlplane' if inventory_hostname in groups.get('controlplane',[]) else 'worker' if inventory_hostname in groups.get('worker',[]) else 'unknown' }}
+      OS    : {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_architecture }})
+
+      -- Resources ------------------------------------------
+      CPU   : {{ ansible_processor_vcpus }} cores     [min: {{ node_reqs.get('cpu_cores','N/A') }}]   {{ '[PASS]' if not cpu_check.failed | default(false) else '[FAIL]' }}
+      RAM   : {{ (ansible_memtotal_mb / 1024) | round(1) }} GB        [min: {{ ((node_reqs.get('ram_mb',0)) / 1024) | round(1) }} GB]   {{ '[PASS]' if not ram_check.failed | default(false) else '[FAIL]' }}
+      Disk  : {{ ((ansible_mounts | selectattr('mount','equalto','/') | first).size_total / 1073741824) | round(1) }} GB        [min: {{ node_reqs.get('disk_gb','N/A') }} GB]   {{ '[PASS]' if not (disk_check.results | default([]) | selectattr('failed','defined') | selectattr('failed') | list | length > 0) else '[FAIL]' }}
+
+      -- External Mounts ------------------------------------
+      {% for m in (prereq_external_mounts | default([])) %}
+      {% if m.nodes == 'all' or inventory_hostname in groups.get(m.nodes,[]) or inventory_hostname == m.nodes %}
+      {% set minfo = ansible_mounts | selectattr('mount','equalto',m.path) | list %}
+      {% if minfo | length > 0 %}
+      {% set sz = (minfo[0].size_total / 1073741824) | round(1) | string ~ ' GB' %}
+      {{ m.path }} : {{ sz }} [min: {{ m.min_size_gb }} GB]   {{ '[PASS]' if (minfo[0].size_total / 1073741824) >= m.min_size_gb else '[FAIL]' }}
+      {% else %}
+      {{ m.path }} : NOT MOUNTED   [FAIL]
+      {% endif %}
+      {% else %}
+      {{ m.path }} : skipped (not applicable to this node)
+      {% endif %}
+      {% endfor %}
+
+      -- URL Reachability ------------------------------------
+      {% for u in (url_check.results | default([])) %}
+      {{ u.item }} : HTTP {{ u.status | default('ERR') }}   {{ '[PASS]' if u.status | default(-1) != -1 else '[FAIL]' }}
+      {% endfor %}
+
+      -- Port Status -----------------------------------------
+      {% for p in port_conflicts | default([]) %}
+      {% set proc = (p.line | regex_search('users\\:\\(\\("([^"]+)"', '\\1') | first) if p.line and 'users:' in p.line else 'kernel/CNI' %}
+      {% set is_k8s = (k8s_process_names | select('in', p.line | default('')) | list | length > 0) or ('users:(' not in (p.line | default(''))) %}
+      {{ p.port }}/{{ p.proto }} : {{ proc }}   {{ '[K8S-OWNED - OK]' if is_k8s else '[CONFLICT - ACTION REQUIRED]' }}
+      {% else %}
+      All K8s ports are free.
+      {% endfor %}
+
+      -- TCP Connectivity (N-to-N) --------------------------
+      {% for r in connectivity_check.results | default([]) %}
+      {% if not r.skipped | default(false) %}
+      {{ r.item[0].port }}/TCP -> {{ r.item[1] }} : {{ '[PASS]' if not r.failed | default(false) else '[FAIL] timeout' }}
+      {% endif %}
+      {% endfor %}
+
+      ======================================================
+      RESULT: {{ '[ALL CHECKS PASSED]' if _prereq_failures | length == 0 else '[FAILED] ' ~ (_prereq_failures | length | string) ~ ' check(s) failed' }}
+      ======================================================
+
+# ─────────────────────────────────────────────
+# 7. Fail hard if any critical checks failed
+# ─────────────────────────────────────────────
+- name: Fail if any prerequisite checks failed
+  ansible.builtin.fail:
+    msg: |
+      Prerequisites FAILED on {{ inventory_hostname }}:
+      {% for f in _prereq_failures %}
+        - {{ f }}
+      {% endfor %}
+  when: _prereq_failures | length > 0
+
+
+

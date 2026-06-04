@@ -6,6 +6,10 @@
   vars_files:
     - vars/cluster_config.yml
   tasks:
+    - name: Run Prerequisites Check
+      ansible.builtin.include_tasks: tasks/prerequisites.yml
+      when: run_prerequisites | default(false) | bool
+
     - name: Importing basic setup tasks
       ansible.builtin.include_tasks: basic_setup/system_settings.yml
     - name: Installing Kubernetes packages

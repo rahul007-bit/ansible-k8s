@@ -4,13 +4,27 @@ This document provides a technical breakdown of exactly what each major playbook
 
 ## Table of Contents
 
-- [1. `create_k8s.yml` (Cluster Creation)](#1-create_k8syml-cluster-creation)
-- [2. `upgrade_k8s.yml` (Cluster Upgrade)](#2-upgrade_k8syml-cluster-upgrade)
-- [3. `reset-k8s-cluster.yml` (Cluster Destruction)](#3-reset-k8s-clusteryml-cluster-destruction)
+- [1. `prerequisites.yml` (Pre-flight Checks)](#1-prerequisitesyml-pre-flight-checks)
+- [2. `create_k8s.yml` (Cluster Creation)](#2-create_k8syml-cluster-creation)
+- [3. `upgrade_k8s.yml` (Cluster Upgrade)](#3-upgrade_k8syml-cluster-upgrade)
+- [4. `reset-k8s-cluster.yml` (Cluster Destruction)](#4-reset-k8s-clusteryml-cluster-destruction)
 
 ---
 
-## 1. `create_k8s.yml` (Cluster Creation)
+## 1. `prerequisites.yml` (Pre-flight Checks)
+
+This playbook runs thorough checks on the system resources, external mounts, URL whitelists, and network connectivity before installing Kubernetes.
+
+### Execution Phases
+
+1. **Resource & Mount Assessment:** Asserts that `ansible_processor_vcpus`, `ansible_memtotal_mb`, and `ansible_mounts` match the strict constraints defined in `vars/cluster_config.yml`, either by exact hostname or by group name.
+2. **Whitelisted URLs Reachability:** Uses the `ansible.builtin.uri` module to check if external endpoints like OCI registries can be reached successfully (HTTP 200, 401, or 403 are accepted).
+3. **Port Availability (In Use):** Uses `ss -tulnp` to verify that essential ports (like `6443`, `10250`, etc.) aren't already being held by a conflicting daemon.
+4. **Network Mesh Connectivity:** Injects a lightweight `port_listener.py` script to temporarily bind to required Kubernetes TCP ports, and leverages the Ansible `wait_for` module delegated dynamically across all nodes to perform an N-to-N connectivity test, validating internal firewall and routing configurations.
+
+---
+
+## 2. `create_k8s.yml` (Cluster Creation)
 
 This playbook provisions a complete Kubernetes cluster from scratch using `kubeadm`.
 
