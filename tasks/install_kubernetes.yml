@@ -110,13 +110,6 @@
     - ansible_distribution == 'Ubuntu'
     - not offline_install
 
-- name: Clean DNF cache (RHEL/CentOS/Fedora)
-  ansible.builtin.command: dnf clean all
-  when: 
-    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
-    - not offline_install
-  changed_when: false
-
 - name: Installing kubelet, kubeadm, and kubectl (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
     name:
@@ -126,7 +119,6 @@
     state: present
     allow_downgrade: true
     disable_gpg_check: true
-    update_cache: true
   when: 
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
     - not offline_install
