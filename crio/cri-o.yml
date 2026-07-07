@@ -111,3 +111,4 @@
           podman load -i "$img"
         done
       become: true
+      when: offline_install | default(false) | bool
