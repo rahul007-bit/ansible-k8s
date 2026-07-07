@@ -90,7 +90,7 @@
       ansible.builtin.dnf:
         name: zram-generator-defaults
         state: absent
-        disablerepo: "{{ '*' if offline_install | default(false) else omit }}"
+        disablerepo: "*"
       when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
       become: true
 

@@ -137,6 +137,7 @@
           - cri-o
           - cri-tools
         state: absent
+        disablerepo: "*"
       when: 
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
         - remove_packages | bool
