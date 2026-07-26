@@ -14,7 +14,7 @@
   gather_facts: true
   serial: 1 # Upgrade one node at a time (rolling upgrade)
   vars_files:
-    - vars/cluster_config.yml
+    - ../vars/cluster_config.yml
   pre_tasks:
     - name: Fail if target_version is not set
       ansible.builtin.fail:

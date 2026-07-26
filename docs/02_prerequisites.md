@@ -200,7 +200,7 @@ ansible -i hosts all -m ping
 
 ```bash
 ansible -i hosts all -m ping --private-key=~/.ssh/id_rsa_test
-ansible-playbook -i hosts create_k8s.yml --private-key=~/.ssh/id_rsa_test
+ansible-playbook -i hosts playbooks/create_k8s.yml --private-key=~/.ssh/id_rsa_test
 ```
 
 ---
@@ -375,13 +375,13 @@ ansible -i hosts all -m setup -a "filter=ansible_distribution" --become
 ansible -i hosts all -m command -a "swapon --show" --become
 
 # 6. Dry run the playbook (no changes made)
-ansible-playbook -i hosts create_k8s.yml --check
+ansible-playbook -i hosts playbooks/create_k8s.yml --check
 ```
 
 If **all 5 checks pass** (1-5), you're ready to run:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 ---

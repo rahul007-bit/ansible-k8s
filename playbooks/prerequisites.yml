@@ -4,7 +4,7 @@
   become: true
   gather_facts: true
   vars_files:
-    - vars/cluster_config.yml
+    - ../vars/cluster_config.yml
   tasks:
     - name: Run Prerequisites Check
-      ansible.builtin.include_tasks: tasks/prerequisites.yml
+      ansible.builtin.include_tasks: ../tasks/prerequisites.yml

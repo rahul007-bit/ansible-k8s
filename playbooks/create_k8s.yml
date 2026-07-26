@@ -4,21 +4,21 @@
   become: true
   gather_facts: true
   vars_files:
-    - vars/cluster_config.yml
+    - ../vars/cluster_config.yml
   tasks:
     - name: Run Prerequisites Check
-      ansible.builtin.include_tasks: tasks/prerequisites.yml
+      ansible.builtin.include_tasks: ../tasks/prerequisites.yml
       when: run_prerequisites | default(false) | bool
 
     - name: Importing basic setup tasks
-      ansible.builtin.include_tasks: basic_setup/system_settings.yml
+      ansible.builtin.include_tasks: ../basic_setup/system_settings.yml
     - name: Installing Kubernetes packages
-      ansible.builtin.include_tasks: tasks/install_kubernetes.yml
+      ansible.builtin.include_tasks: ../tasks/install_kubernetes.yml
     - name: Importing crio tasks
-      ansible.builtin.include_tasks: crio/cri-o.yml
+      ansible.builtin.include_tasks: ../crio/cri-o.yml
       when: runtime == "crio"
     - name: Importing containerd tasks
-      ansible.builtin.include_tasks: containerd/containerd.yml
+      ansible.builtin.include_tasks: ../containerd/containerd.yml
       when: runtime == "containerd"
 
     # ---- Ensure CNI plugin binaries exist ----

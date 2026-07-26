@@ -118,7 +118,7 @@ To switch to CRI-O:
 # Change runtime: containerd → runtime: crio in vars/cluster_config.yml
 
 # Option B: Override at runtime (no file changes)
-ansible-playbook -i hosts create_k8s.yml -e runtime=crio
+ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio
 ```
 
 ### Kubernetes Version
@@ -134,7 +134,7 @@ This controls which version of `kubeadm`, `kubelet`, and `kubectl` gets installe
 # Change kube_version: "1.32" → kube_version: "1.30" in vars/cluster_config.yml
 
 # Option B: Override at runtime
-ansible-playbook -i hosts create_k8s.yml -e kube_version=1.30
+ansible-playbook -i hosts playbooks/create_k8s.yml -e kube_version=1.30
 ```
 
 > **Note**: Use the format `1.32` (no `v` prefix). Check [Kubernetes releases](https://github.com/kubernetes/kubernetes/releases) for available versions.
@@ -152,7 +152,7 @@ Only used when `runtime: crio`. Controls which CRI-O package version gets instal
 # Change crio_version: "v1.31" → crio_version: "v1.30" in vars/cluster_config.yml
 
 # Option B: Override at runtime
-ansible-playbook -i hosts create_k8s.yml -e runtime=crio -e crio_version=v1.34
+ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio -e crio_version=v1.34
 ```
 
 > **Note**: Use the format `v1.35` (with `v` prefix). Check [CRI-O releases](https://github.com/cri-o/cri-o/releases) for available versions.
@@ -182,7 +182,7 @@ To switch to Flannel:
 # Make sure flannel_version is set to a valid release (e.g. v0.26.0)
 
 # Option B: Override at runtime (no file changes)
-ansible-playbook -i hosts create_k8s.yml \
+ansible-playbook -i hosts playbooks/create_k8s.yml \
   -e cni_plugin=flannel \
   -e flannel_version=v0.26.0
 ```
@@ -202,7 +202,7 @@ This controls the exact version of the standard CNI plugin binaries (like `bridg
 # Change cni_plugins_version: "v1.6.2" → cni_plugins_version: "v1.9.0" in vars/cluster_config.yml
 
 # Option B: Override at runtime
-ansible-playbook -i hosts create_k8s.yml -e cni_plugins_version=v1.9.0
+ansible-playbook -i hosts playbooks/create_k8s.yml -e cni_plugins_version=v1.9.0
 ```
 
 ### Pod Network CIDR
@@ -214,7 +214,7 @@ pod_network_cidr: "{{ cni_default_cidrs[cni_plugin] }}"
 This is the IP range used for pod-to-pod communication. It's auto-set based on the CNI plugin, but you can override it if your network has specific requirements:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -e pod_network_cidr=10.100.0.0/16
+ansible-playbook -i hosts playbooks/create_k8s.yml -e pod_network_cidr=10.100.0.0/16
 ```
 
 > **Heads up**: Make sure the pod CIDR doesn't overlap with your actual host network. For example, if your servers are on `192.168.1.x`, the default Calico CIDR `192.168.0.0/16` technically overlaps (both are in the `192.168.x.x` range). In practice, Calico handles this fine with its routing, but if you run into issues, pick a non-overlapping range like `10.244.0.0/16`.
@@ -242,7 +242,7 @@ kubeconfig_on_all_cp: false
 # Change kubeconfig_on_all_cp: false → kubeconfig_on_all_cp: true in vars/cluster_config.yml
 
 # Option B: Override at runtime
-ansible-playbook -i hosts create_k8s.yml -e kubeconfig_on_all_cp=true
+ansible-playbook -i hosts playbooks/create_k8s.yml -e kubeconfig_on_all_cp=true
 ```
 
 ### OS Upgrade
@@ -254,7 +254,7 @@ os_upgrade: false  # Set to true to run full OS upgrade
 The playbook always updates the package cache (`apt update`), but skips the full package upgrade (`apt upgrade`) by default. Enable it if you want to upgrade all packages before setting up Kubernetes:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -e os_upgrade=true
+ansible-playbook -i hosts playbooks/create_k8s.yml -e os_upgrade=true
 ```
 
 ### Firewall Configuration
@@ -274,7 +274,7 @@ The playbook includes automated firewall configuration for `ufw` (Ubuntu/Debian)
 To disable automated firewall management:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -e firewall_enabled=false
+ansible-playbook -i hosts playbooks/create_k8s.yml -e firewall_enabled=false
 ```
 
 > [!TIP]
@@ -289,7 +289,7 @@ remove_packages: false  # Set to true to purge Kubernetes and CRI-O packages
 By default, the `reset-k8s-cluster.yml` playbook resets cluster configuration and files but leaves the base packages (kubeadm, kubelet, kubectl, cri-o) installed. Enable this if you want a completely clean slate including repository removal.
 
 ```bash
-ansible-playbook -i hosts reset-k8s-cluster.yml -e remove_packages=true
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e remove_packages=true
 ```
 
 ---
@@ -301,17 +301,17 @@ ansible-playbook -i hosts reset-k8s-cluster.yml -e remove_packages=true
 You can manually run the pre-flight checks without triggering an installation:
 
 ```bash
-ansible-playbook -i hosts prerequisites.yml
+ansible-playbook -i hosts playbooks/prerequisites.yml
 ```
 
 ### Create a cluster
 
 ```bash
 # With defaults (containerd + Calico v3.29.3)
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 
 # With custom settings
-ansible-playbook -i hosts create_k8s.yml \
+ansible-playbook -i hosts playbooks/create_k8s.yml \
   -e runtime=containerd \
   -e cni_plugin=flannel \
   -e flannel_version=v0.26.0
@@ -327,10 +327,10 @@ This wipes everything and gives you a fresh start. Run this when you want to tea
 
 ```bash
 # Interactive reset
-ansible-playbook -i hosts reset-k8s-cluster.yml
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml
 
 # Automated reset (bypasses prompt)
-ansible-playbook -i hosts reset-k8s-cluster.yml -e force_reset=yes
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e force_reset=yes
 ```
 
 ### Upgrade a cluster
@@ -343,7 +343,7 @@ The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kube
 
 ```bash
 # Example: Upgrading from v1.34.x to v1.35.x
-ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.35
+ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.35
 ```
 
 ### Dry run (check mode)
@@ -351,7 +351,7 @@ ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.35
 See what the playbook *would* do without actually making any changes:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml --check
+ansible-playbook -i hosts playbooks/create_k8s.yml --check
 ```
 
 ### See detailed output
@@ -360,13 +360,13 @@ If something goes wrong, crank up the verbosity to see exactly what's happening:
 
 ```bash
 # More detail
-ansible-playbook -i hosts create_k8s.yml -v
+ansible-playbook -i hosts playbooks/create_k8s.yml -v
 
 # Even more detail
-ansible-playbook -i hosts create_k8s.yml -vv
+ansible-playbook -i hosts playbooks/create_k8s.yml -vv
 
 # Maximum detail (shows SSH commands, full module args, etc.)
-ansible-playbook -i hosts create_k8s.yml -vvv
+ansible-playbook -i hosts playbooks/create_k8s.yml -vvv
 ```
 
 ### Run on specific hosts only
@@ -374,8 +374,8 @@ ansible-playbook -i hosts create_k8s.yml -vvv
 If you only want to run the playbook on certain hosts (e.g., just the workers):
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml --limit worker
-ansible-playbook -i hosts create_k8s.yml --limit host2
+ansible-playbook -i hosts playbooks/create_k8s.yml --limit worker
+ansible-playbook -i hosts playbooks/create_k8s.yml --limit host2
 ```
 
 ---
@@ -385,7 +385,7 @@ ansible-playbook -i hosts create_k8s.yml --limit host2
 ### Scenario 1: Fresh cluster with defaults
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 This gives you: containerd + Calico v3.29.3 + pod CIDR `192.168.0.0/16`
@@ -394,10 +394,10 @@ This gives you: containerd + Calico v3.29.3 + pod CIDR `192.168.0.0/16`
 
 ```bash
 # Tear down
-ansible-playbook -i hosts reset-k8s-cluster.yml
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml
 
 # Build again
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 ### Scenario 3: Use Flannel instead of Calico
@@ -405,7 +405,7 @@ ansible-playbook -i hosts create_k8s.yml
 Decide which CNI you want **before** creating the cluster. Edit `cni_plugin` and `cni_version` in `vars/cluster_config.yml`, then run:
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 > **Note**: Swapping CNI plugins on a running cluster is not supported by this playbook. If you need to change CNI, reset the cluster first and rebuild.
@@ -423,10 +423,10 @@ ansible-playbook -i hosts create_k8s.yml
 2. Run the playbook targeting only the new host:
 
    ```bash
-   ansible-playbook -i hosts create_k8s.yml --limit host4
+   ansible-playbook -i hosts playbooks/create_k8s.yml --limit host4
    ```
 
-> **Pro Tip**: Because the playbook is idempotent, you can also just run the full `ansible-playbook -i hosts create_k8s.yml`. It will detect that your existing nodes are already configured and only perform the setup on the new `host4`.
+> **Pro Tip**: Because the playbook is idempotent, you can also just run the full `ansible-playbook -i hosts playbooks/create_k8s.yml`. It will detect that your existing nodes are already configured and only perform the setup on the new `host4`.
 
 ### Scenario 5: HA cluster with multiple masters
 
@@ -444,7 +444,7 @@ ansible-playbook -i hosts create_k8s.yml
 2. Run the playbook:
 
    ```bash
-   ansible-playbook -i hosts create_k8s.yml
+   ansible-playbook -i hosts playbooks/create_k8s.yml
    ```
 
 3. Verify both nodes show as `control-plane`:
@@ -459,17 +459,17 @@ ansible-playbook -i hosts create_k8s.yml
 
 | What you want | Command |
 | ------------- | ------- |
-| Check Prerequisites | `ansible-playbook -i hosts prerequisites.yml` |
-| Create cluster (defaults) | `ansible-playbook -i hosts create_k8s.yml` |
-| Create with Flannel | `ansible-playbook -i hosts create_k8s.yml -e cni_plugin=flannel -e flannel_version=v0.26.4` |
-| Create with CRI-O | `ansible-playbook -i hosts create_k8s.yml -e runtime=crio` |
-| Kubeconfig on all masters | `ansible-playbook -i hosts create_k8s.yml -e kubeconfig_on_all_cp=true` |
-| With OS upgrade | `ansible-playbook -i hosts create_k8s.yml -e os_upgrade=true` |
-| Reset cluster | `ansible-playbook -i hosts reset-k8s-cluster.yml` |
-| Dry run | `ansible-playbook -i hosts create_k8s.yml --check` |
-| Verbose mode | `ansible-playbook -i hosts create_k8s.yml -vvv` |
-| Run on one host | `ansible-playbook -i hosts create_k8s.yml --limit host2` |
-| Upgrade cluster | `ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31` |
+| Check Prerequisites | `ansible-playbook -i hosts playbooks/prerequisites.yml` |
+| Create cluster (defaults) | `ansible-playbook -i hosts playbooks/create_k8s.yml` |
+| Create with Flannel | `ansible-playbook -i hosts playbooks/create_k8s.yml -e cni_plugin=flannel -e flannel_version=v0.26.4` |
+| Create with CRI-O | `ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio` |
+| Kubeconfig on all masters | `ansible-playbook -i hosts playbooks/create_k8s.yml -e kubeconfig_on_all_cp=true` |
+| With OS upgrade | `ansible-playbook -i hosts playbooks/create_k8s.yml -e os_upgrade=true` |
+| Reset cluster | `ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml` |
+| Dry run | `ansible-playbook -i hosts playbooks/create_k8s.yml --check` |
+| Verbose mode | `ansible-playbook -i hosts playbooks/create_k8s.yml -vvv` |
+| Run on one host | `ansible-playbook -i hosts playbooks/create_k8s.yml --limit host2` |
+| Upgrade cluster | `ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.31` |
 
 ## Offline Installation
 
@@ -523,7 +523,7 @@ If you have a zip file (like `k8s_rpm.zip`) on your local machine:
 1. Set `offline_install: true` in `vars/cluster_config.yml`.
 2. Set `offline_pkg_source: "controller"`.
 3. Set `offline_pkg_type: "zip"`.
-4. Run the playbook: `ansible-playbook -i hosts create_k8s.yml`
+4. Run the playbook: `ansible-playbook -i hosts playbooks/create_k8s.yml`
 
 #### Scenario 2: Install from pre-uploaded Zip on Remote
 

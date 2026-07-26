@@ -28,25 +28,25 @@ Ensure your `hosts` inventory file is populated with your `[controlplane]` and `
 First, you can optionally run the pre-flight checks independently:
 
 ```bash
-ansible-playbook -i hosts prerequisites.yml
+ansible-playbook -i hosts playbooks/prerequisites.yml
 ```
 
 Then execute the cluster creation playbook (which will also run the prerequisites if enabled):
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 To upgrade an existing cluster to a new Kubernetes version:
 
 ```bash
-ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.31
+ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.31
 ```
 
 To entirely wipe all nodes (destructive operation):
 
 ```bash
-ansible-playbook -i hosts reset-k8s-cluster.yml -e force_reset=yes
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e force_reset=yes
 ```
 
 > **Note:** For deep-dives into individual components like CRI-O, Containerd, or Basic Setup, refer to the README files located inside each component's directory.

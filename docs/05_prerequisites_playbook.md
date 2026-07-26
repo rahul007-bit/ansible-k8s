@@ -35,7 +35,7 @@ Kubernetes requires unimpeded communication between nodes. The playbook dynamica
 To execute the checks independently without installing Kubernetes:
 
 ```bash
-ansible-playbook -i hosts prerequisites.yml
+ansible-playbook -i hosts playbooks/prerequisites.yml
 ```
 
-> **Note:** If `run_prerequisites` is set to `true` in your configuration, running `ansible-playbook -i hosts create_k8s.yml` will automatically perform these exact same checks before proceeding with cluster installation.
+> **Note:** If `run_prerequisites` is set to `true` in your configuration, running `ansible-playbook -i hosts playbooks/create_k8s.yml` will automatically perform these exact same checks before proceeding with cluster installation.

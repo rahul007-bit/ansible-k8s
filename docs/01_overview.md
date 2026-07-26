@@ -96,13 +96,13 @@ All variables are defined in `vars/cluster_config.yml` and can be overridden at 
 ### Create a cluster (defaults: containerd + Calico)
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml
+ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
 ### Create with Flannel instead of Calico
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml \
+ansible-playbook -i hosts playbooks/create_k8s.yml \
   -e cni_plugin=flannel \
   -e cni_version=v0.26.4
 ```
@@ -110,31 +110,31 @@ ansible-playbook -i hosts create_k8s.yml \
 ### Create with CRI-O runtime
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -e runtime=crio
+ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio
 ```
 
 ### Override pod CIDR
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -e pod_network_cidr=10.100.0.0/16
+ansible-playbook -i hosts playbooks/create_k8s.yml -e pod_network_cidr=10.100.0.0/16
 ```
 
 ### Reset the cluster
 
 ```bash
-ansible-playbook -i hosts reset-k8s-cluster.yml
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml
 ```
 
 ### Dry run (check mode)
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml --check
+ansible-playbook -i hosts playbooks/create_k8s.yml --check
 ```
 
 ### Verbose output (debugging)
 
 ```bash
-ansible-playbook -i hosts create_k8s.yml -vvv
+ansible-playbook -i hosts playbooks/create_k8s.yml -vvv
 ```
 
 ---
@@ -156,9 +156,12 @@ ansible/
 │   └── install_kubernetes.yml      # Shared: kubeadm, kubelet, kubectl install
 ├── vars/
 │   └── cluster_config.yml          # Unified configuration file
-├── create_k8s.yml                  # Main playbook: cluster creation
-├── reset-k8s-cluster.yml           # Teardown playbook: cluster reset
-├── upgrade_k8s.yml                 # Rolling upgrade playbook
+├── playbooks/
+│   ├── create_k8s.yml              # Main playbook: cluster creation
+│   ├── reset-k8s-cluster.yml       # Teardown playbook: cluster reset
+│   ├── upgrade_k8s.yml             # Rolling upgrade playbook
+│   ├── prerequisites.yml           # Pre-flight checks playbook
+│   └── kube-flannel.yml            # Flannel CNI manifest
 └── hosts                           # Inventory file
 ```
 
