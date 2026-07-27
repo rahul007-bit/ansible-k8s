@@ -1,0 +1,2 @@
+AZURE_REGISTRY_USERNAME=<your-username>
+AZURE_REGISTRY_PASSWORD=<your-password>

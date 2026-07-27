@@ -1,9 +1,10 @@
 [controlplane]
-master ansible_host=192.168.1.123 ansible_user=root
+#unifyai-base-dev-rhel9-model ansible_host=10.128.0.18 ansible_user=jrspy
+unifyai-base-dev-rhel9-main ansible_host=10.128.0.17 ansible_user=jrspy
 
 [worker]
 # Add worker nodes here when you have more VMs
-worker ansible_host=192.168.1.128 ansible_user=root
-worker2 ansible_host=192.168.1.176 ansible_user=root
+unifyai-base-dev-rhel9-model ansible_host=10.128.0.18 ansible_user=jrspy
+#unifyai-base-dev-rhel9-main ansible_host=10.128.0.17 ansible_user=jrspy
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
