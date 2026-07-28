@@ -1,18 +1,90 @@
 ---
 # Upgrade Kubernetes cluster to a new version
-# Usage: ansible-playbook -i hosts upgrade_k8s.yml -e target_version=1.32
+# Usage: ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.32
 #
-# This playbook follows the official kubeadm upgrade procedure:
-# 1. Upgrade kubeadm on all nodes
-# 2. Run kubeadm upgrade on control plane nodes (apply on first, node on rest)
-# 3. Upgrade kubelet and kubectl on all nodes
-# 4. Restart kubelet
+# Follows the official kubeadm upgrade procedure, split into two ordered
+# plays so control-plane nodes are always fully upgraded before any worker
+# node starts (no dependency on hosts-file ordering):
+#   Play A (controlplane): version check, etcd snapshot, kubeadm upgrade
+#     apply, drain, kubelet/kubectl upgrade, uncordon + health check.
+#   Play B (worker): kubeadm upgrade node, drain, kubelet/kubectl upgrade,
+#     uncordon + health check.
+#
+# Drain always runs AFTER kubeadm upgrade apply/node, never before: newer
+# kubeadm (1.31+) runs its own preflight health-check Job that must schedule
+# on the control-plane node itself, which fails if that node is already
+# cordoned.
+#
+# Supports offline_install (see vars/cluster_config.yml) the same way
+# create_k8s.yml does — packages/images are staged from offline_pkg_path
+# instead of hitting pkgs.k8s.io. Re-stage the TARGET version's bundle
+# before running this playbook.
+#
+# On a control-plane upgrade failure, the playbook never rolls back on its
+# own — it only offers an etcd-snapshot restore and waits for an explicit
+# operator answer (see tasks/upgrade_control_plane_apply.yml).
 
-- name: Upgrade Kubernetes Cluster
-  hosts: all
+- name: Stage offline images on every node before any kubeadm upgrade command
+  # kubeadm's own preflight health-check Job (kubeadm upgrade plan/apply,
+  # 1.31+) schedules on whichever node the default scheduler picks - not
+  # necessarily the control-plane node being upgraded. If that node hasn't
+  # been staged with the target version's images yet (e.g. a worker, which
+  # Play B wouldn't touch until after Play A finishes), the Job's pod hangs
+  # pulling from the network and blows kubeadm's fixed 15s timeout on
+  # airgapped hosts. Load images everywhere up front to avoid that race.
+  hosts: "{{ (groups['controlplane'] | default([])) + (groups['worker'] | default([])) }}"
   become: true
   gather_facts: true
-  serial: 1 # Upgrade one node at a time (rolling upgrade)
+  vars_files:
+    - ../vars/cluster_config.yml
+  tasks:
+    - name: Stage offline packages/images
+      ansible.builtin.include_tasks: ../tasks/offline_package_prep.yml
+      when: offline_install | bool
+    - name: Load offline container images
+      ansible.builtin.include_tasks: ../tasks/offline_image_load.yml
+      when: offline_install | bool
+
+- name: Upgrade Kubernetes Cluster (Control Plane)
+  hosts: "{{ groups['controlplane'] }}"
+  become: true
+  gather_facts: true
+  serial: 1
+  vars_files:
+    - ../vars/cluster_config.yml
+  pre_tasks:
+    - name: Validate target_version and version gap
+      ansible.builtin.include_tasks: ../tasks/upgrade_version_check.yml
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Snapshot etcd before upgrade
+      ansible.builtin.include_tasks: ../tasks/upgrade_etcd_backup.yml
+      when: inventory_hostname == groups['controlplane'][0]
+
+    - name: Verify offline bundle is staged
+      ansible.builtin.include_tasks: ../tasks/upgrade_offline_preflight.yml
+      when: offline_install | bool
+  tasks:
+    - name: Upgrade kubeadm
+      ansible.builtin.include_tasks: ../tasks/upgrade_kubeadm.yml
+
+    - name: Run kubeadm upgrade (control plane)
+      ansible.builtin.include_tasks: ../tasks/upgrade_control_plane_apply.yml
+
+    - name: Drain node before upgrade
+      ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+
+    - name: Upgrade kubelet and kubectl
+      ansible.builtin.include_tasks: ../tasks/upgrade_kubelet_kubectl.yml
+
+    - name: Uncordon and verify node health
+      ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml
+
+- name: Upgrade Kubernetes Cluster (Workers)
+  hosts: "{{ groups['worker'] | default([]) }}"
+  become: true
+  gather_facts: true
+  serial: 1
   vars_files:
     - ../vars/cluster_config.yml
   pre_tasks:
@@ -21,212 +93,21 @@
         msg: "You must specify target_version. Example: -e target_version=1.29"
       when: target_version == ""
 
-    - name: Get current Kubernetes version
-      ansible.builtin.command: kubelet --version
-      register: current_kubelet_ver
-      changed_when: false
-      when: inventory_hostname == groups['controlplane'][0]
-
-    - name: Extract current minor version
-      ansible.builtin.set_fact:
-        current_minor: "{{ current_kubelet_ver.stdout | regex_search('v1\\.(\\d+)', '\\1') | first | int }}"
-        target_minor: "{{ target_version | regex_search('1\\.(\\d+)', '\\1') | first | int }}"
-      when: inventory_hostname == groups['controlplane'][0]
-
-    - name: Check version gap
-      ansible.builtin.fail:
-        msg: >
-          Cannot upgrade from v1.{{ current_minor }} to v{{ target_version }} directly.
-          Kubernetes only supports upgrading one minor version at a time.
-          Current: v1.{{ current_minor }}, Target: v1.{{ target_minor }}, Gap: {{ target_minor | int - current_minor | int }}.
-          Please upgrade step by step (e.g., 1.{{ current_minor }} → 1.{{ current_minor | int + 1 }} → ...).
-      when:
-        - inventory_hostname == groups['controlplane'][0]
-        - (target_minor | int - current_minor | int) > 1
-
+    - name: Verify offline bundle is staged
+      ansible.builtin.include_tasks: ../tasks/upgrade_offline_preflight.yml
+      when: offline_install | bool
   tasks:
-    # ---- Step 1: Update package repos to target version ----
-    - name: Download Kubernetes GPG key for target version (Ubuntu)
-      ansible.builtin.get_url:
-        url: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/Release.key"
-        dest: /tmp/kubernetes-release-key-{{ target_version }}.gpg
-        mode: "0644"
-      when: ansible_distribution == 'Ubuntu'
+    - name: Upgrade kubeadm
+      ansible.builtin.include_tasks: ../tasks/upgrade_kubeadm.yml
 
-    - name: De-armor and install Kubernetes GPG key (Ubuntu)
-      ansible.builtin.shell: >
-        gpg --batch --yes --dearmor
-        -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-        /tmp/kubernetes-release-key-{{ target_version }}.gpg
-      when: ansible_distribution == 'Ubuntu'
-      changed_when: true
-
-    - name: Update Kubernetes repository to target version (Ubuntu)
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/ /"
-        state: present
-        filename: kubernetes
-      when: ansible_distribution == 'Ubuntu'
-
-    - name: Update Kubernetes repository to target version (RHEL/CentOS/Fedora)
-      ansible.builtin.yum_repository:
-        name: kubernetes
-        description: Kubernetes
-        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/"
-        gpgcheck: true
-        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/repodata/repomd.xml.key"
-        enabled: true
-      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
-
-    # ---- Step 2: Upgrade kubeadm ----
-    - name: Update apt cache (Ubuntu)
-      ansible.builtin.apt:
-        update_cache: true
-      when: ansible_distribution == 'Ubuntu'
-
-    - name: Upgrade kubeadm (Ubuntu)
-      ansible.builtin.apt:
-        name: "kubeadm={{ target_version }}.*"
-        state: present
-        allow_downgrade: true
-        allow_change_held_packages: true
-      when: ansible_distribution == 'Ubuntu'
-
-    - name: Upgrade kubeadm (RHEL/CentOS/Fedora)
-      ansible.builtin.dnf:
-        name: "kubeadm-{{ target_version }}.*"
-        state: present
-        allow_downgrade: true
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
-
-    - name: Check kubeadm version
-      ansible.builtin.command: kubeadm version -o short
-      register: kubeadm_ver
-      changed_when: false
-
-    - name: Show kubeadm version
-      ansible.builtin.debug:
-        msg: 
-          - "#########################################################"
-          - "SUCCESS: kubeadm upgraded to {{ kubeadm_ver.stdout }}"
-          - "#########################################################"
-
-    # ---- Step 3: kubeadm upgrade (control plane) ----
-    - name: Run kubeadm upgrade plan (first control plane only)
-      ansible.builtin.command: kubeadm upgrade plan
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      when: inventory_hostname == groups['controlplane'][0]
-      register: upgrade_plan
-      changed_when: false
-
-    - name: Show upgrade plan
-      ansible.builtin.debug:
-        msg: "{{ upgrade_plan.stdout_lines | default(['No plan output']) }}"
-      when: inventory_hostname == groups['controlplane'][0]
-
-    - name: Apply kubeadm upgrade (first control plane only)
-      ansible.builtin.command: kubeadm upgrade apply {{ kubeadm_ver.stdout }} --yes
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      when: inventory_hostname == groups['controlplane'][0]
-      register: upgrade_apply
-      changed_when: "'SUCCESS' in (upgrade_apply.stdout | default(''))"
-
-    - name: Show upgrade apply output
-      ansible.builtin.debug:
-        msg: "{{ upgrade_apply.stdout_lines | default(['No apply output']) }}"
-      when: inventory_hostname == groups['controlplane'][0]
-
-    - name: "#########################################################"
-      ansible.builtin.debug:
-        msg: "##### DRAINING NODE: {{ ansible_hostname }} #####"
-      delegate_to: "{{ groups['controlplane'][0] }}"
+    - name: Run kubeadm upgrade (worker)
+      ansible.builtin.include_tasks: ../tasks/upgrade_worker_node.yml
 
     - name: Drain node before upgrade
-      ansible.builtin.command: >
-        kubectl drain {{ ansible_hostname }}
-        --ignore-daemonsets
-        --delete-emptydir-data
-        --force
-        --grace-period=60
-        --timeout=5m
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      delegate_to: "{{ groups['controlplane'][0] }}"
-      retries: 3
-      delay: 10
-      register: drain_result
-      until: drain_result.rc == 0
-      changed_when: true
+      ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
 
-    - name: Show Drain Output
-      ansible.builtin.debug:
-        var: drain_result.stdout_lines
-      delegate_to: "{{ groups['controlplane'][0] }}"
-      when: drain_result.stdout_lines is defined
+    - name: Upgrade kubelet and kubectl
+      ansible.builtin.include_tasks: ../tasks/upgrade_kubelet_kubectl.yml
 
-    - name: Upgrade additional control plane nodes
-      ansible.builtin.command: kubeadm upgrade node
-      when:
-        - inventory_hostname in groups['controlplane']
-        - inventory_hostname != groups['controlplane'][0]
-      changed_when: true
-
-    - name: Upgrade worker nodes
-      ansible.builtin.command: kubeadm upgrade node
-      when: inventory_hostname in groups.get('worker', [])
-      changed_when: true
-
-    # ---- Step 4: Upgrade kubelet and kubectl ----
-    - name: Upgrade kubelet and kubectl (Ubuntu)
-      ansible.builtin.apt:
-        name:
-          - "kubelet={{ target_version }}.*"
-          - "kubectl={{ target_version }}.*"
-        state: present
-        allow_downgrade: true
-        allow_change_held_packages: true
-      when: ansible_distribution == 'Ubuntu'
-
-    - name: Upgrade kubelet and kubectl (RHEL/CentOS/Fedora)
-      ansible.builtin.dnf:
-        name:
-          - "kubelet-{{ target_version }}.*"
-          - "kubectl-{{ target_version }}.*"
-        state: present
-        allow_downgrade: true
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
-
-    # ---- Step 5: Restart kubelet ----
-    - name: Reload systemd daemon
-      ansible.builtin.systemd:
-        daemon_reload: true
-
-    - name: Restart kubelet
-      ansible.builtin.service:
-        name: kubelet
-        state: restarted
-
-    - name: Uncordon node after upgrade
-      ansible.builtin.command: kubectl uncordon {{ ansible_hostname }}
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      delegate_to: "{{ groups['controlplane'][0] }}"
-      register: uncordon_result
-      changed_when: true
-
-    - name: Show Uncordon Output
-      ansible.builtin.debug:
-        var: uncordon_result.stdout_lines
-      delegate_to: "{{ groups['controlplane'][0] }}"
-      when: uncordon_result.stdout_lines is defined
-
-    - name: Check kubelet version
-      ansible.builtin.command: kubelet --version
-      register: kubelet_ver
-      changed_when: false
-
-    - name: Show upgraded versions
-      ansible.builtin.debug:
-        msg: "{{ inventory_hostname }} ({{ ansible_hostname }}): {{ kubelet_ver.stdout }}"
+    - name: Uncordon and verify node health
+      ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml

@@ -1,0 +1,29 @@
+---
+# CP0-only: snapshot etcd before touching anything, so there's a known-good
+# recovery point if the upgrade fails. Never restored automatically — see
+# tasks/upgrade_rollback.yml, which only runs after explicit operator
+# confirmation.
+
+- name: Ensure etcd backup directory exists
+  ansible.builtin.file:
+    path: /var/backups
+    state: directory
+    mode: "0700"
+
+- name: Record snapshot timestamp
+  ansible.builtin.set_fact:
+    etcd_snapshot_path: "/var/backups/etcd-snapshot-{{ target_version }}-{{ ansible_date_time.iso8601_basic_short }}.db"
+
+- name: Snapshot etcd before upgrade
+  ansible.builtin.command: >
+    etcdctl snapshot save {{ etcd_snapshot_path }}
+  environment:
+    ETCDCTL_API: "3"
+    ETCDCTL_CACERT: /etc/kubernetes/pki/etcd/ca.crt
+    ETCDCTL_CERT: /etc/kubernetes/pki/etcd/server.crt
+    ETCDCTL_KEY: /etc/kubernetes/pki/etcd/server.key
+  changed_when: true
+
+- name: Show etcd snapshot path
+  ansible.builtin.debug:
+    msg: "etcd snapshot saved to {{ etcd_snapshot_path }} on {{ inventory_hostname }}"

@@ -1,0 +1,101 @@
+---
+# Step 1 (repo/GPG setup) + Step 2 (install kubeadm to target_version), online
+# and offline paths, plus a version-verify assert.
+
+# ---- Step 1: Update package repos to target version (online only) ----
+- name: Download Kubernetes GPG key for target version (Ubuntu)
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/Release.key"
+    dest: /tmp/kubernetes-release-key-{{ target_version }}.gpg
+    mode: "0644"
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+- name: De-armor and install Kubernetes GPG key (Ubuntu)
+  ansible.builtin.shell: >
+    gpg --batch --yes --dearmor
+    -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    /tmp/kubernetes-release-key-{{ target_version }}.gpg
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+  changed_when: true
+
+- name: Update Kubernetes repository to target version (Ubuntu)
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/ /"
+    state: present
+    filename: kubernetes
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+- name: Update Kubernetes repository to target version (RHEL/CentOS/Fedora)
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes
+    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/"
+    gpgcheck: true
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/repodata/repomd.xml.key"
+    enabled: true
+  when:
+    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - not (offline_install | bool)
+# ---- Step 2: Upgrade kubeadm ----
+- name: Update apt cache (Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+- name: Upgrade kubeadm (Ubuntu)
+  ansible.builtin.apt:
+    name: "kubeadm={{ target_version }}.*"
+    state: present
+    allow_downgrade: true
+    allow_change_held_packages: true
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+- name: Upgrade kubeadm (RHEL/CentOS/Fedora)
+  ansible.builtin.dnf:
+    name: "kubeadm-{{ target_version }}.*"
+    state: present
+    allow_downgrade: true
+  when:
+    - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+    - not (offline_install | bool)
+- name: Upgrade kubeadm from local files (Offline - RPM)
+  ansible.builtin.shell: "rpm -Uvh --replacepkgs --oldpackage $(find {{ remote_pkg_dir }} -name 'kubeadm-*.rpm' -o -name 'cri-tools-*.rpm')"
+  register: kubeadm_offline_rpm
+  failed_when: kubeadm_offline_rpm.rc != 0
+  when:
+    - offline_install | bool
+    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+- name: Upgrade kubeadm from local files (Offline - DEB)
+  ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/kubeadm*.deb"
+  register: kubeadm_offline_deb
+  failed_when: kubeadm_offline_deb.rc != 0
+  when:
+    - offline_install | bool
+    - ansible_distribution == 'Ubuntu'
+
+- name: Check kubeadm version
+  ansible.builtin.command: kubeadm version -o short
+  register: kubeadm_ver
+  changed_when: false
+
+- name: Verify kubeadm was upgraded to target_version
+  ansible.builtin.assert:
+    that: target_version in kubeadm_ver.stdout
+    fail_msg: >
+      kubeadm reports {{ kubeadm_ver.stdout }} after install, expected
+      target_version={{ target_version }}. Check the staged package version
+      in {{ remote_pkg_dir }} (offline) or the repo (online).
+
+- name: Show kubeadm version
+  ansible.builtin.debug:
+    msg:
+      - "#########################################################"
+      - "SUCCESS: kubeadm upgraded to {{ kubeadm_ver.stdout }}"
+      - "#########################################################"

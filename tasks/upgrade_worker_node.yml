@@ -1,0 +1,9 @@
+---
+- name: Upgrade worker nodes
+  ansible.builtin.command: kubeadm upgrade node
+  when: inventory_hostname in groups.get('worker', [])
+  register: upgrade_node_worker
+  retries: 2
+  delay: 15
+  until: upgrade_node_worker.rc == 0
+  changed_when: true

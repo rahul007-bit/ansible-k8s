@@ -1,0 +1,64 @@
+---
+# Single-control-plane etcd restore. Only ever included after an operator has
+# explicitly typed 'yes' at the rescue-block prompt in
+# tasks/upgrade_control_plane_apply.yml — never triggered automatically.
+# Not supported/attempted for multi-node etcd (guarded by the caller).
+
+- name: Stop kubelet
+  ansible.builtin.service:
+    name: kubelet
+    state: stopped
+
+- name: Move etcd static pod manifest out to stop etcd
+  ansible.builtin.command: mv /etc/kubernetes/manifests/etcd.yaml /etc/kubernetes/etcd.yaml.bak
+  changed_when: true
+
+- name: Wait for etcd container to stop
+  ansible.builtin.command: sh -c "! crictl ps --name etcd -q | grep ."
+  register: etcd_stopped
+  retries: 6
+  delay: 5
+  until: etcd_stopped.rc == 0
+  changed_when: false
+
+- name: Restore etcd snapshot to fresh data directory
+  ansible.builtin.command: >
+    etcdctl snapshot restore {{ etcd_snapshot_path }}
+    --data-dir /var/lib/etcd-restored
+  environment:
+    ETCDCTL_API: "3"
+  changed_when: true
+
+- name: Back up current etcd data directory
+  ansible.builtin.command: mv /var/lib/etcd /var/lib/etcd-failed-upgrade
+  changed_when: true
+
+- name: Put restored data directory in place
+  ansible.builtin.command: mv /var/lib/etcd-restored /var/lib/etcd
+  changed_when: true
+
+- name: Restore etcd static pod manifest
+  ansible.builtin.command: mv /etc/kubernetes/etcd.yaml.bak /etc/kubernetes/manifests/etcd.yaml
+  changed_when: true
+
+- name: Start kubelet
+  ansible.builtin.service:
+    name: kubelet
+    state: started
+
+- name: Wait for API server to respond after restore
+  ansible.builtin.command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: api_check
+  retries: 18
+  delay: 10
+  until: api_check.rc == 0
+  changed_when: false
+
+- name: Report rollback complete
+  ansible.builtin.debug:
+    msg: >
+      etcd restored from {{ etcd_snapshot_path }}. Pre-restore data kept at
+      /var/lib/etcd-failed-upgrade for inspection. The upgrade has been
+      aborted — investigate the failure before retrying.

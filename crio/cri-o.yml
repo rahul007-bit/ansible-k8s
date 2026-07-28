@@ -59,8 +59,7 @@
         state: absent
       when: 
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
-        - not offline_install
-
+        - not (offline_install | bool)
     - name: Add CRI-O package repo (RHEL/CentOS/Fedora)
       ansible.builtin.yum_repository:
         name: crio
@@ -71,8 +70,7 @@
         enabled: true
       when: 
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
-        - not offline_install
-
+        - not (offline_install | bool)
     - name: Install CRI-O (RHEL/CentOS/Fedora)
       ansible.builtin.dnf:
         name: "cri-o-{{ crio_version | regex_replace('^v', '') }}.*"
@@ -81,21 +79,64 @@
         disable_gpg_check: true
       when: 
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
-        - not offline_install
-
+        - not (offline_install | bool)
     # ---- Offline Installation (RPM) ----
     - name: Install CRI-O from local files (Offline - RPM)
-      ansible.builtin.shell: "dnf install -y --disablerepo=* --exclude=systemd* $(find {{ remote_pkg_dir }} -name '*.rpm')"
+      ansible.builtin.shell: "rpm -Uvh --replacepkgs --oldpackage $(find {{ remote_pkg_dir }} -name '*.rpm')"
       when: 
-        - offline_install
+        - offline_install | bool
         - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
 
     # ---- Offline Installation (DEB) ----
     - name: Install CRI-O from local files (Offline - DEB)
       ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/cri-o*.deb || apt-get install -f -y"
       when: 
-        - offline_install
+        - offline_install | bool
         - ansible_distribution == 'Ubuntu'
+
+    # ---- Align CRI-O's pause image with what kubeadm/kubelet expect ----
+    # CRI-O ships its own packaged default pause_image (often stale, e.g.
+    # 3.6), independent of the kubelet's --pod-infra-container-image flag
+    # (which CRI runtimes ignore). Online this is masked because CRI-O just
+    # pulls whatever it needs from the network; offline it hangs forever
+    # waiting on a pause image that was never staged. Derive the correct tag
+    # from the already-installed kubeadm binary (works fully offline, no
+    # network call - kubeadm prints its own compiled-in default image list).
+    - name: Determine kubeadm's expected pause image
+      ansible.builtin.shell: kubeadm config images list | grep pause
+      register: kubeadm_pause_image
+      changed_when: false
+
+    - name: Ensure CRI-O drop-in config directory exists
+      ansible.builtin.file:
+        path: /etc/crio/crio.conf.d
+        state: directory
+        mode: "0755"
+
+    # CRI-O 1.24-1.28 shipped a broken "unset" pids_limit default (0), passed
+    # straight through to the container's cgroup pids.max instead of being
+    # treated as unlimited - caps every container to ~2 OS threads.
+    # kube-apiserver/etcd are heavily multi-threaded and crash-loop
+    # immediately as a result ("runtime: failed to create new OS thread ...
+    # errno=11"). Fixed upstream in 1.29 by changing the default to -1
+    # (correctly interpreted as unlimited by runc/crun). Set -1 explicitly
+    # and unconditionally: it fixes the 0-bug on 1.24-1.28, and unlike a
+    # positive number (e.g. 4096) it imposes no artificial per-container
+    # ceiling on 1.29+ - the actual limit belongs in kubelet's
+    # podPidsLimit (KubeletConfiguration), not here. Verified working via
+    # crio config | grep pids_limit + a forced container recreation on a
+    # live CRI-O 1.26.4 node before adopting this as the default.
+    - name: Configure CRI-O pause_image and pids_limit
+      ansible.builtin.copy:
+        dest: /etc/crio/crio.conf.d/10-pause-image.conf
+        content: |
+          [crio.image]
+          pause_image = "{{ kubeadm_pause_image.stdout }}"
+
+          [crio.runtime]
+          pids_limit = -1
+        mode: "0644"
+      register: pause_image_conf
 
     # ---- Enable and start CRI-O ----
     - name: Enable and start CRI-O service
@@ -104,11 +145,13 @@
         state: started
         enabled: true
 
+    - name: Restart CRI-O if pause_image config changed on an already-running service
+      ansible.builtin.service:
+        name: crio
+        state: restarted
+      when: pause_image_conf.changed
+
     # ---- Load container images offline ----
     - name: Load offline container images into Podman/CRI-O storage
-      ansible.builtin.shell: |
-        for img in "{{ remote_images_dir }}"/*.tar; do
-          podman load -i "$img"
-        done
-      become: true
+      ansible.builtin.include_tasks: ../tasks/offline_image_load.yml
       when: offline_install | default(false) | bool

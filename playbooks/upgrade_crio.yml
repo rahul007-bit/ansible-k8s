@@ -1,0 +1,88 @@
+---
+# Upgrade CRI-O to a new version on an already-running cluster.
+# Usage: ansible-playbook -i hosts playbooks/upgrade_crio.yml -e crio_version=v1.36
+#
+# Decoupled from playbooks/upgrade_k8s.yml on purpose: unlike kubeadm, CRI-O
+# has no one-minor-at-a-time restriction (it only needs to satisfy the CRI
+# API kubelet expects), so this jumps directly to the target crio_version in
+# one step per node rather than walking every minor.
+#
+# Restarting CRI-O recreates every running container's sandbox on that node
+# at once - heavier blast radius than a kubelet restart - so this drains
+# each node first (control plane, then workers, one at a time) and waits for
+# it to report Ready again before moving on. Reuses crio/cri-o.yml (same
+# install path create_k8s.yml uses) which also re-derives and rewrites the
+# pause_image config from the current kubeadm binary, fixing pause_image
+# staleness as a side effect.
+#
+# Supports offline_install the same way as the other playbooks - stage the
+# TARGET crio_version's package/images bundle (offline_pkg_path etc.) before
+# running this.
+
+- name: Upgrade CRI-O (Control Plane)
+  hosts: "{{ groups['controlplane'] }}"
+  become: true
+  gather_facts: true
+  serial: 1
+  vars_files:
+    - ../vars/cluster_config.yml
+  pre_tasks:
+    - name: Fail if crio_version is not set
+      ansible.builtin.fail:
+        msg: "You must specify crio_version. Example: -e crio_version=v1.36"
+      when: crio_version == ""
+
+    - name: Stage offline packages/images
+      ansible.builtin.include_tasks: ../tasks/offline_package_prep.yml
+      when: offline_install | bool
+  tasks:
+    - name: Drain node before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+
+    - name: Stop kubelet and running containers before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
+
+    - name: Install/upgrade CRI-O
+      ansible.builtin.include_tasks: ../crio/cri-o.yml
+
+    - name: Start kubelet after CRI-O upgrade
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+
+    - name: Uncordon and verify node health
+      ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml
+
+- name: Upgrade CRI-O (Workers)
+  hosts: "{{ groups['worker'] | default([]) }}"
+  become: true
+  gather_facts: true
+  serial: 1
+  vars_files:
+    - ../vars/cluster_config.yml
+  pre_tasks:
+    - name: Fail if crio_version is not set
+      ansible.builtin.fail:
+        msg: "You must specify crio_version. Example: -e crio_version=v1.36"
+      when: crio_version == ""
+
+    - name: Stage offline packages/images
+      ansible.builtin.include_tasks: ../tasks/offline_package_prep.yml
+      when: offline_install | bool
+  tasks:
+    - name: Drain node before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+
+    - name: Stop kubelet and running containers before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
+
+    - name: Install/upgrade CRI-O
+      ansible.builtin.include_tasks: ../crio/cri-o.yml
+
+    - name: Start kubelet after CRI-O upgrade
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+
+    - name: Uncordon and verify node health
+      ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml

@@ -96,3 +96,5 @@ remove_packages: false
 
 # --- Upgrade Settings (upgrade_k8s.yml) ---
 target_version: "1.30" # Should typically be passed via -e at runtime
+interactive_rollback_prompt: true  # If a control-plane upgrade fails, pause and ask before restoring the etcd snapshot.
+                                    # Set false for headless/CI runs (fails without prompting; still no automatic rollback).

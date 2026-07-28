@@ -1,0 +1,28 @@
+---
+# Stop kubelet and every running container before restarting/upgrading
+# CRI-O. Container processes live in kubepods.slice, not crio.service's own
+# cgroup, so systemd's KillMode=control-group on crio.service never touches
+# them - restarting CRI-O with containers still alive (including static pods
+# like etcd/apiserver, which kubectl drain never evicts) leaves them
+# orphaned. The new CRI-O process can't cleanly reconcile a stale container
+# it has no record of, gets stuck retrying forever (crio.service has
+# TimeoutStartUSec=infinity), and the RPM upgrade scriptlet hangs with it.
+# Stopping kubelet first prevents it from immediately recreating containers
+# while we tear them down against the still-functional OLD CRI-O.
+
+- name: Stop kubelet before CRI-O restart
+  ansible.builtin.systemd:
+    name: kubelet
+    state: stopped
+
+- name: List running containers
+  ansible.builtin.command: crictl ps -q
+  register: running_containers
+  changed_when: false
+  failed_when: false
+
+- name: Stop all running containers before CRI-O restart
+  ansible.builtin.command: "crictl stop --timeout 30 {{ running_containers.stdout_lines | join(' ') }}"
+  when: running_containers.stdout_lines | length > 0
+  changed_when: true
+  failed_when: false

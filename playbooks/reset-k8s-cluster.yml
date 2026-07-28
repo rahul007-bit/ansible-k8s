@@ -64,6 +64,23 @@
         - 10-calico.conflist
       ignore_errors: true # Ignore errors if the files do not exist
 
+    # Step 3b: Remove leftover CNI bridge/overlay interfaces so a subsequent
+    # create_k8s.yml run doesn't inherit a stale bridge IP (kubeadm reset does
+    # not tear these down on its own).
+    - name: Find leftover CNI network interfaces
+      ansible.builtin.shell: >-
+        ip -o link show |
+        awk -F': ' '{print $2}' |
+        grep -E '^(cni0|flannel\.1|cali[a-f0-9]+|vxlan\.calico|tunl0|veth[a-f0-9]+)$' || true
+      register: leftover_cni_interfaces
+      changed_when: false
+
+    - name: Remove leftover CNI network interfaces
+      ansible.builtin.command: ip link delete {{ item }}
+      loop: "{{ leftover_cni_interfaces.stdout_lines }}"
+      ignore_errors: true
+      changed_when: true
+
     # Step 4: Remove containerd containers (instead of Docker)
     - name: Remove containerd containers related to Kubernetes
       ansible.builtin.shell: crictl rm --all
@@ -128,19 +145,19 @@
 
     # Step 10: Remove Kubernetes and CRI-O packages (RHEL/CentOS/Fedora)
     - name: Remove Kubernetes and CRI-O packages (RHEL/CentOS/Fedora)
-      ansible.builtin.dnf:
-        name:
-          - kubelet
-          - kubeadm
-          - kubectl
-          - kubernetes-cni
-          - cri-o
-          - cri-tools
-        state: absent
-        disablerepo: "*"
-      when: 
+      # Uses rpm directly instead of ansible.builtin.dnf: the dnf module
+      # still invokes dnf's subscription-manager plugin even with
+      # disablerepo: "*", which phones home and can hang for a long time on
+      # airgapped hosts (fast online, slow/hanging offline).
+      ansible.builtin.shell: |
+        for pkg in kubelet kubeadm kubectl kubernetes-cni cri-o cri-tools; do
+          rpm -q "$pkg" >/dev/null 2>&1 && rpm -e --nodeps "$pkg"
+        done
+        true
+      when:
         - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
         - remove_packages | bool
+      changed_when: true
       ignore_errors: true
 
     # Step 11: Remove Repositories and Keys (Ubuntu)

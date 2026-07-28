@@ -1,0 +1,78 @@
+---
+# Step 4: install kubelet + kubectl to target_version (online/offline), verify,
+# then reload systemd and restart kubelet.
+
+- name: Upgrade kubelet and kubectl (Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ target_version }}.*"
+      - "kubectl={{ target_version }}.*"
+    state: present
+    allow_downgrade: true
+    allow_change_held_packages: true
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - not (offline_install | bool)
+- name: Upgrade kubelet and kubectl (RHEL/CentOS/Fedora)
+  ansible.builtin.dnf:
+    name:
+      - "kubelet-{{ target_version }}.*"
+      - "kubectl-{{ target_version }}.*"
+    state: present
+    allow_downgrade: true
+  when:
+    - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+    - not (offline_install | bool)
+- name: Upgrade kubelet and kubectl from local files (Offline - RPM)
+  ansible.builtin.shell: >
+    rpm -Uvh --replacepkgs --oldpackage
+    $(find {{ remote_pkg_dir }} -name 'kubelet-*.rpm' -o -name 'kubectl-*.rpm' -o -name 'kubernetes-cni-*.rpm')
+  register: kubelet_kubectl_offline_rpm
+  failed_when: kubelet_kubectl_offline_rpm.rc != 0
+  when:
+    - offline_install | bool
+    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+- name: Upgrade kubelet and kubectl from local files (Offline - DEB)
+  ansible.builtin.shell: >
+    dpkg -i {{ remote_pkg_dir }}/**/kubelet*.deb {{ remote_pkg_dir }}/**/kubectl*.deb
+  register: kubelet_kubectl_offline_deb
+  failed_when: kubelet_kubectl_offline_deb.rc != 0
+  when:
+    - offline_install | bool
+    - ansible_distribution == 'Ubuntu'
+
+- name: Check kubelet version after install
+  ansible.builtin.command: kubelet --version
+  register: kubelet_ver_check
+  changed_when: false
+
+- name: Check kubectl version after install
+  ansible.builtin.command: kubectl version --client -o json
+  register: kubectl_ver_check
+  changed_when: false
+
+- name: Verify kubelet was upgraded to target_version
+  ansible.builtin.assert:
+    that: target_version in kubelet_ver_check.stdout
+    fail_msg: >
+      kubelet reports {{ kubelet_ver_check.stdout }} after install, expected
+      target_version={{ target_version }}. Check the staged package version
+      in {{ remote_pkg_dir }} (offline) or the repo (online).
+
+- name: Verify kubectl was upgraded to target_version
+  ansible.builtin.assert:
+    that: target_version in kubectl_ver_check.stdout
+    fail_msg: >
+      kubectl reports an unexpected version after install, expected
+      target_version={{ target_version }}. Check the staged package version
+      in {{ remote_pkg_dir }} (offline) or the repo (online).
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart kubelet
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted

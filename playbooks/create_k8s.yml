@@ -40,8 +40,7 @@
         remote_src: true
       when: 
         - not (cni_bin_check.stat.exists | default(false))
-        - not offline_install
-
+        - not (offline_install | bool)
     # ---- Control Plane Init (first master only) ----
     - name: Check if Kubernetes is already initialized
       ansible.builtin.stat:
@@ -110,12 +109,11 @@
         mode: "0644"
       when: 
         - inventory_hostname == groups['controlplane'][0]
-        - offline_install
-
+        - offline_install | bool
     - name: Apply CNI {{ cni_plugin }}
       ansible.builtin.command: >-
         kubectl apply -f 
-        {% if offline_install %}/tmp/kube-{{ cni_plugin }}.yml{% else %}{{ cni_manifest_urls[cni_plugin] }}{% endif %}
+        {% if offline_install | bool %}/tmp/kube-{{ cni_plugin }}.yml{% else %}{{ cni_manifest_urls[cni_plugin] }}{% endif %}
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
       when: inventory_hostname == groups['controlplane'][0]

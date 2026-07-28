@@ -17,8 +17,11 @@ This repository manages the complete lifecycle (bootstrap, destruction, and zero
 ## 📖 Key Top-Level Playbooks
 
 1. **`create_k8s.yml`**: Provisions a cluster. Responsible for system prep, container runtime installation, Control Plane 1 `kubeadm init`, CNI networking, HA master joins, and worker joins.
-2. **`upgrade_k8s.yml`**: Conducts a rolling node-by-node upgrade. Pre-checks minor version compatibility, updates kubeadm/repos, executes drain, upgrades kubelet, and uncordons.
-3. **`reset-k8s-cluster.yml`**: Tears everything down completely. Contains an explicit interactive prompt that must be bypassed with `-e force_reset=yes` for headless execution.
+2. **`upgrade_k8s.yml`**: Conducts a rolling node-by-node upgrade, as two ordered plays (controlplane group, then worker group — no dependency on `hosts` file order). Composed of `tasks/upgrade_*.yml` includes (mirrors `create_k8s.yml`'s modular style). Pre-checks minor version compatibility, snapshots etcd, updates kubeadm/repos (or installs offline via `offline_install`, same vars as `create_k8s.yml`), executes drain, upgrades kubelet, uncordons, and waits for node `Ready`. On a control-plane upgrade failure it **never rolls back on its own** — `tasks/upgrade_control_plane_apply.yml`'s rescue block only offers an operator-confirmed etcd restore (`tasks/upgrade_rollback.yml`); future changes to this flow must preserve that "ask, don't auto-rollback" behavior.
+3. **`upgrade_crio.yml`**: Upgrades CRI-O in place on a running cluster, deliberately decoupled from `upgrade_k8s.yml` (CRI-O has no one-minor-at-a-time restriction, so it jumps straight to the target `crio_version`). `kubectl drain` alone is not enough before restarting CRI-O — it never evicts static pods (etcd/apiserver/controller-manager/scheduler) or DaemonSet pods, and their containers live outside `crio.service`'s own cgroup, so a naive restart leaves the new CRI-O process stuck forever trying to reconcile containers it has no record of (`crio.service` has `TimeoutStartUSec=infinity`, no timeout to save it). `tasks/upgrade_crio_stop_containers.yml` stops kubelet and `crictl stop`s every running container against the still-functional *old* CRI-O first; future changes to this playbook must preserve that ordering or the control-plane upgrade path will hang. Also re-derives `pause_image` from the current kubeadm binary every run, keeping it in sync since `upgrade_k8s.yml` never touches CRI-O at all.
+4. **`reset-k8s-cluster.yml`**: Tears everything down completely. Contains an explicit interactive prompt that must be bypassed with `-e force_reset=yes` for headless execution. Also cleans up leftover `cni0`/`flannel.1`/`cali*`/`veth*` interfaces (`kubeadm reset` doesn't) and uses `rpm -e --nodeps` rather than `dnf remove` for package purge, for the same subscription-manager-hang reason noted below.
+
+**Offline installs use `rpm`, not `dnf`.** Every offline install task in this repo (`crio/cri-o.yml`, `tasks/install_kubernetes.yml`, `tasks/upgrade_kubeadm.yml`, `tasks/upgrade_kubelet_kubectl.yml`) runs `rpm -Uvh --replacepkgs --oldpackage` on the pre-staged local files. `dnf`/`ansible.builtin.dnf` still invoke dnf's subscription-manager plugin even with `--disablerepo=*`, which tries to phone home and can hang indefinitely on a genuinely airgapped host — this bit us mid-session on a live cluster. Don't reintroduce `dnf`/`yum` for any offline-only code path; online paths (`not offline_install`) are fine as-is.
 
 ---
 
@@ -116,3 +119,11 @@ If you are asked to expand the playbook, these are the core pieces currently mis
 4. **Using Generic `inventory_hostname` for Kubernetes Commands:**
    - As mentioned above, using Ansible's `inventory_hostname` (e.g. `host1`) for `kubectl` commands (like `drain`, `uncordon`, `top`) will fail if the node's hostname is different. Kubernetes registers nodes by their OS hostname.
    - **Workaround:** Always use `{{ ansible_hostname }}` in Ansible tasks that interact with the Kubernetes API requiring a node name.
+
+5. **`upgrade_k8s.yml` Never Touches CRI-O:**
+   - Running `upgrade_k8s.yml` repeatedly (e.g. `1.26` → `1.35`) leaves CRI-O's version and `pause_image` completely frozen at whatever `create_k8s.yml` originally installed.
+   - **Workaround:** Run `upgrade_crio.yml` separately (see above) whenever you want CRI-O itself updated.
+
+6. **Restarting CRI-O with a Node's Static/DaemonSet Pods Still Running:**
+   - Directly restarting `crio.service` (e.g. via `systemctl restart crio`, or a package upgrade's scriptlet) while etcd/apiserver/controller-manager/scheduler or DaemonSet pod containers are still alive can hang forever — `crio.service` has no start timeout, and it can't reconcile containers it has no record of after a restart.
+   - **Workaround:** Always go through `upgrade_crio.yml` (or manually stop kubelet + `crictl stop` every running container first) rather than restarting CRI-O directly on a node with running workloads.

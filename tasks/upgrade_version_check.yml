@@ -1,0 +1,27 @@
+---
+# CP0-only: validate target_version and enforce the one-minor-version-at-a-time
+# rule before any upgrade action touches a node.
+
+- name: Fail if target_version is not set
+  ansible.builtin.fail:
+    msg: "You must specify target_version. Example: -e target_version=1.29"
+  when: target_version == ""
+
+- name: Get current Kubernetes version
+  ansible.builtin.command: kubelet --version
+  register: current_kubelet_ver
+  changed_when: false
+
+- name: Extract current and target minor versions
+  ansible.builtin.set_fact:
+    current_minor: "{{ current_kubelet_ver.stdout | regex_search('v1\\.(\\d+)', '\\1') | first | int }}"
+    target_minor: "{{ target_version | regex_search('1\\.(\\d+)', '\\1') | first | int }}"
+
+- name: Check version gap
+  ansible.builtin.fail:
+    msg: >
+      Cannot upgrade from v1.{{ current_minor }} to v{{ target_version }} directly.
+      Kubernetes only supports upgrading one minor version at a time.
+      Current: v1.{{ current_minor }}, Target: v1.{{ target_minor }}, Gap: {{ target_minor | int - current_minor | int }}.
+      Please upgrade step by step (e.g., 1.{{ current_minor }} → 1.{{ current_minor | int + 1 }} → ...).
+  when: (target_minor | int - current_minor | int) > 1

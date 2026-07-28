@@ -1,0 +1,30 @@
+---
+# Drain the current host before its kubeadm/kubelet upgrade steps run.
+
+- name: "#########################################################"
+  ansible.builtin.debug:
+    msg: "##### DRAINING NODE: {{ ansible_hostname }} #####"
+  delegate_to: "{{ groups['controlplane'][0] }}"
+
+- name: Drain node before upgrade
+  ansible.builtin.command: >
+    kubectl drain {{ ansible_hostname }}
+    --ignore-daemonsets
+    --delete-emptydir-data
+    --force
+    --grace-period=60
+    --timeout=5m
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  delegate_to: "{{ groups['controlplane'][0] }}"
+  retries: 3
+  delay: 10
+  register: drain_result
+  until: drain_result.rc == 0
+  changed_when: true
+
+- name: Show Drain Output
+  ansible.builtin.debug:
+    var: drain_result.stdout_lines
+  delegate_to: "{{ groups['controlplane'][0] }}"
+  when: drain_result.stdout_lines is defined

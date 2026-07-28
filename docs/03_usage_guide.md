@@ -25,6 +25,7 @@ Once your prerequisites are in place (see `02_prerequisites.md`), you're ready t
   - [Create a cluster](#create-a-cluster)
   - [Reset a cluster](#reset-a-cluster)
   - [Upgrade a cluster](#upgrade-a-cluster)
+  - [Upgrade CRI-O](#upgrade-crio)
   - [Dry run (check mode)](#dry-run-check-mode)
   - [See detailed output](#see-detailed-output)
   - [Run on specific hosts only](#run-on-specific-hosts-only)
@@ -339,12 +340,33 @@ Use `upgrade_k8s.yml` to perform automated, zero-downtime rolling upgrades of yo
 
 > **CRITICAL RULE**: Kubernetes only supports upgrading **one minor version at a time**. You cannot jump directly from `v1.28` to `v1.32`. You must upgrade sequentially (e.g., `1.28` → `1.29` → `1.30`). The playbook will automatically abort if you try to skip a version.
 
-The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kubectl drain` before upgrading packages, ensuring your applications experience zero downtime.
+The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kubectl drain` before upgrading packages, ensuring your applications experience zero downtime. It runs as two ordered plays — all control-plane nodes first, then workers — so the upgrade order never depends on `hosts` file layout.
 
 ```bash
 # Example: Upgrading from v1.34.x to v1.35.x
 ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.35
 ```
+
+**Safety nets (see `docs/04_top_level_playbooks.md` for full detail):**
+- An etcd snapshot is taken before any control-plane change (`/var/backups/etcd-snapshot-<version>-<timestamp>.db`).
+- Each node must report `Ready` before the rolling upgrade moves to the next one.
+- If `kubeadm upgrade apply` fails on the first control-plane node, the playbook **never rolls back on its own** — it pauses and asks whether to restore the etcd snapshot (single control-plane only; multi-CP requires manual recovery). Set `interactive_rollback_prompt: false` in `vars/cluster_config.yml` for headless/CI runs (still no automatic rollback, just fails immediately with the snapshot path).
+
+**Offline upgrades:** if `offline_install: true`, re-stage the **target version's** package/image bundle at `offline_pkg_path` (same `rpms/`+`images/` layout described below) before running the upgrade — the playbook fails fast if the staged bundle is empty or missing.
+
+### Upgrade CRI-O
+
+`upgrade_k8s.yml` never touches CRI-O — it only upgrades kubeadm/kubelet/kubectl, matching the original online playbook's scope. Use `upgrade_crio.yml` separately to bump the container runtime:
+
+```bash
+ansible-playbook -i hosts playbooks/upgrade_crio.yml -e crio_version=v1.36
+```
+
+Unlike Kubernetes, CRI-O has **no one-minor-at-a-time restriction** — it only needs to satisfy the CRI API kubelet expects, so you can jump directly to any target `crio_version` in one step. This is intentionally kept as a separate playbook rather than folded into `upgrade_k8s.yml`: restarting CRI-O recreates every running container on a node at once, a heavier blast radius than a kubelet restart, and mixing the two upgrade vectors into one automated run makes failures harder to isolate.
+
+The playbook stops kubelet and every running container before restarting CRI-O (not just `kubectl drain`, which never evicts static pods like etcd/kube-apiserver or DaemonSet pods) — this avoids CRI-O getting stuck trying to reconcile containers still alive under the old runtime. It also re-derives and rewrites the `pause_image` config from the current `kubeadm` binary on every run, which keeps it in sync even though `upgrade_k8s.yml` never touches it.
+
+**Offline upgrades:** same `offline_install`/`offline_pkg_*` vars as the other playbooks — re-stage the target CRI-O version's bundle first.
 
 ### Dry run (check mode)
 
@@ -502,8 +524,25 @@ remote_pkg_dir: "/tmp/k8s_packages"   # Temp directory on remote nodes to extrac
 
 > [!WARNING]
 > When using `offline_pkg_type: "dir"`, the directory MUST be structured with two folders:
-> 1. `rpms/` - contains the RPMs to be installed. **Do not include systemd RPMs** in this folder as updating protected systemd packages on running RHEL9 nodes causes DNF transaction failures.
+> 1. `rpms/` - contains the RPMs to be installed. **Do not include systemd RPMs** in this folder as updating protected systemd packages on running RHEL9 nodes causes transaction failures.
 > 2. `images/` - contains `.tar` files of container images (e.g. flannel, coredns) that are loaded into Podman/CRI-O storage automatically during installation.
+
+Every setting above can also be overridden at runtime with `-e` instead of editing `vars/cluster_config.yml` — useful for scripting/CI, or one-off runs against a bundle staged at a different path:
+
+```bash
+ansible-playbook -i hosts playbooks/create_k8s.yml \
+  -e offline_install=true \
+  -e offline_pkg_type=dir \
+  -e offline_pkg_source=remote \
+  -e offline_pkg_path=/root/bundles/bundle-k8s-offline-rhel-1.36.3 \
+  -e remote_pkg_dir=/root/bundles/bundle-k8s-offline-rhel-1.36.3/rpms \
+  -e remote_images_dir=/root/bundles/bundle-k8s-offline-rhel-1.36.3/images
+```
+
+The same vars apply unchanged to `upgrade_k8s.yml` and `upgrade_crio.yml` — just point them at the target version's bundle instead.
+
+> [!NOTE]
+> The offline install tasks use `rpm -Uvh` directly, not `dnf`/`ansible.builtin.dnf`. `dnf` still calls its subscription-manager plugin even with `--disablerepo=*`, which tries to phone home and can hang for a long time on a truly airgapped host. This is safe only because `syncit`-packed bundles are self-contained — all dependencies already resolved — so there's no repo-aware resolution being skipped.
 
 ### Guidelines: When to use which option?
 

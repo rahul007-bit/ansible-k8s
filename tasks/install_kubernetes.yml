@@ -3,56 +3,10 @@
 # Uses kube_version variable from create_k8s.yml (e.g., "1.32")
 
 - name: Handle Offline Package Preparation
-  when: offline_install
-  block:
-    - name: Ensure remote package directory exists
-      ansible.builtin.file:
-        path: "{{ remote_pkg_dir }}"
-        state: directory
-        mode: "0755"
-
-    - name: Ensure remote images directory exists
-      ansible.builtin.file:
-        path: "{{ remote_images_dir }}"
-        state: directory
-        mode: "0755"
-
-    - name: Transfer and extract packages from Controller (Zip)
-      ansible.builtin.unarchive:
-        src: "{{ offline_pkg_path }}"
-        dest: "{{ remote_pkg_dir }}"
-        remote_src: false
-      when: 
-        - offline_pkg_source == 'controller'
-        - offline_pkg_type == 'zip'
-
-    - name: Extract packages already on Remote (Zip)
-      ansible.builtin.unarchive:
-        src: "{{ offline_pkg_path }}"
-        dest: "{{ remote_pkg_dir }}"
-        remote_src: true
-      when: 
-        - offline_pkg_source == 'remote'
-        - offline_pkg_type == 'zip'
-
-    - name: Transfer packages from Controller (Directory)
-      ansible.builtin.copy:
-        src: "{{ offline_pkg_path }}/rpms/"
-        dest: "{{ remote_pkg_dir }}/"
-      when: 
-        - offline_pkg_source == 'controller'
-        - offline_pkg_type == 'dir'
-
-    - name: Transfer images from Controller (Directory)
-      ansible.builtin.copy:
-        src: "{{ offline_pkg_path }}/images/"
-        dest: "{{ remote_images_dir }}/"
-      when: 
-        - offline_pkg_source == 'controller'
-        - offline_pkg_type == 'dir'
-
+  ansible.builtin.include_tasks: offline_package_prep.yml
+  when: offline_install | bool
 - name: Setup Repositories (Online)
-  when: not offline_install
+  when: not (offline_install | bool)
   block:
     - name: Ensure keyrings directory exists (Ubuntu)
       ansible.builtin.file:
@@ -108,8 +62,7 @@
     allow_change_held_packages: true
   when: 
     - ansible_distribution == 'Ubuntu'
-    - not offline_install
-
+    - not (offline_install | bool)
 - name: Installing kubelet, kubeadm, and kubectl (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
     name:
@@ -121,18 +74,17 @@
     disable_gpg_check: true
   when: 
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
-    - not offline_install
-
+    - not (offline_install | bool)
 - name: Installing Kubernetes packages from local files (Offline - RPM)
-  ansible.builtin.shell: "dnf install -y --disablerepo=* --exclude=systemd* $(find {{ remote_pkg_dir }} -name '*.rpm')"
+  ansible.builtin.shell: "rpm -Uvh --replacepkgs --oldpackage $(find {{ remote_pkg_dir }} -name '*.rpm')"
   when: 
-    - offline_install
+    - offline_install | bool
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
 
 - name: Installing Kubernetes packages from local files (Offline - DEB)
   ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/*.deb || apt-get install -f -y"
   when: 
-    - offline_install
+    - offline_install | bool
     - ansible_distribution == 'Ubuntu'
 
 - name: Enabling kubelet service

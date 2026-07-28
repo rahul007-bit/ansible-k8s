@@ -1,0 +1,34 @@
+---
+# Per-host, offline_install only: fail fast if the target-version package/image
+# bundle hasn't actually been staged into remote_pkg_dir/remote_images_dir
+# before we start changing anything on this node.
+
+- name: Check for staged offline packages
+  ansible.builtin.shell: "find {{ remote_pkg_dir }} -name '*.rpm' -o -name '*.deb' | head -n1"
+  register: offline_pkg_check
+  changed_when: false
+
+- name: Check for staged offline images
+  ansible.builtin.shell: "find {{ remote_images_dir }} -name '*.tar' | head -n1"
+  register: offline_img_check
+  changed_when: false
+
+- name: Fail if no offline packages are staged
+  ansible.builtin.assert:
+    that: offline_pkg_check.stdout | trim | length > 0
+    fail_msg: >
+      offline_install is true but no *.rpm/*.deb files were found in
+      {{ remote_pkg_dir }} on {{ inventory_hostname }}. Stage the
+      target_version={{ target_version }} package bundle at
+      {{ offline_pkg_path }} before running this upgrade.
+    success_msg: "Offline packages found in {{ remote_pkg_dir }}"
+
+- name: Fail if no offline images are staged
+  ansible.builtin.assert:
+    that: offline_img_check.stdout | trim | length > 0
+    fail_msg: >
+      offline_install is true but no *.tar image files were found in
+      {{ remote_images_dir }} on {{ inventory_hostname }}. Stage the
+      target_version={{ target_version }} image bundle at
+      {{ offline_pkg_path }} before running this upgrade.
+    success_msg: "Offline images found in {{ remote_images_dir }}"

@@ -1,0 +1,45 @@
+---
+# Uncordon the current host after its upgrade, then wait for it to actually
+# report Ready before the serial loop moves on to the next node.
+
+- name: Uncordon node after upgrade
+  # Retries absorb a transient race right after a kubelet/CRI-O restart: the
+  # apiserver can still be finishing RBAC sync for a few seconds, returning
+  # "Forbidden" for kubernetes-admin even though the credentials are fine.
+  ansible.builtin.command: kubectl uncordon {{ ansible_hostname }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  delegate_to: "{{ groups['controlplane'][0] }}"
+  register: uncordon_result
+  retries: 6
+  delay: 5
+  until: uncordon_result.rc == 0
+  changed_when: true
+
+- name: Show Uncordon Output
+  ansible.builtin.debug:
+    var: uncordon_result.stdout_lines
+  delegate_to: "{{ groups['controlplane'][0] }}"
+  when: uncordon_result.stdout_lines is defined
+
+- name: Wait for node to report Ready after upgrade
+  ansible.builtin.shell: >
+    kubectl get node {{ ansible_hostname }}
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  delegate_to: "{{ groups['controlplane'][0] }}"
+  register: node_ready
+  retries: 12
+  delay: 10
+  until: node_ready.stdout == "True"
+  changed_when: false
+
+- name: Check kubelet version
+  ansible.builtin.command: kubelet --version
+  register: kubelet_ver
+  changed_when: false
+
+- name: Show upgraded versions
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} ({{ ansible_hostname }}): {{ kubelet_ver.stdout }}"

@@ -44,16 +44,23 @@
         - firewall_enabled | bool
         - ansible_distribution in ["Ubuntu", "Debian"]
 
-    - name: Setup networking of kubernetes
+    - name: Setup networking kernel modules for kubernetes (persist across reboot)
       ansible.builtin.blockinfile:
-        path: /etc/modules-load.d/containerd.conf
+        path: /etc/modules-load.d/kubernetes.conf
         block: |
           overlay
           br_netfilter
+          vxlan
         backup: true
         create: true
         mode: "0644"
-      when: runtime == "containerd"
+      # overlay/br_netfilter are required regardless of container runtime
+      # (CRI-O and containerd both need them); vxlan is flannel's default
+      # backend. This file used to be written only when runtime == containerd
+      # and never survived a reboot on CRI-O nodes - br_netfilter/vxlan would
+      # silently vanish after a reboot, breaking flannel with
+      # "stat /proc/sys/net/bridge/bridge-nf-call-iptables: no such file or
+      # directory" and leaving pods stuck ContainerCreating.
     - name: Setup kernel parameters of kubernetes
       ansible.builtin.blockinfile:
         path: /etc/sysctl.d/kubernetes.conf
@@ -72,6 +79,10 @@
       community.general.modprobe:
         name: br_netfilter
         state: present
+    - name: Add the vxlan module
+      community.general.modprobe:
+        name: vxlan
+        state: present
     - name: Reloading Sysctl
       become: true
       ansible.builtin.command: sysctl --system
@@ -86,12 +97,22 @@
         regexp: '^([^#\n]+\s+swap\s+.*)$'
         replace: '# \1'
 
-    - name: Uninstall zram-generator package (Fedora, CentOS, RedHat)
-      ansible.builtin.dnf:
-        name: zram-generator-defaults
-        state: absent
-        disablerepo: "*"
+    - name: Check whether zram-generator-defaults is installed (Fedora, CentOS, RedHat)
+      ansible.builtin.command: rpm -q zram-generator-defaults
+      register: zram_pkg_check
+      failed_when: false
+      changed_when: false
       when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+
+    - name: Uninstall zram-generator package (Fedora, CentOS, RedHat)
+      # Uses rpm directly instead of ansible.builtin.dnf: the dnf module
+      # still invokes dnf's subscription-manager plugin even with
+      # disablerepo: "*", which phones home and can hang for a long time on
+      # airgapped hosts (fast online, slow/hanging offline).
+      ansible.builtin.command: rpm -e zram-generator-defaults
+      when:
+        - ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+        - zram_pkg_check.rc == 0
       become: true
 
     - name: Ensure ZRAM swap is disabled permanently (Fedora, CentOS, RedHat)
@@ -105,5 +126,12 @@
       ansible.builtin.file:
         path: /etc/systemd/system/zram.service
         state: absent
+      register: zram_unit_removed
       when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+      become: true
+
+    - name: Reload systemd after removing ZRAM unit file
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: zram_unit_removed.changed | default(false)
       become: true

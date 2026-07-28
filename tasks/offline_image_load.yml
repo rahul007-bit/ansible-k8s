@@ -1,0 +1,13 @@
+---
+# Shared task: load pre-staged container image tarballs (remote_images_dir)
+# into Podman/CRI-O storage. Included wherever offline_install images need
+# to be present locally before a container runtime/kubeadm action (create +
+# upgrade flows).
+
+- name: Load offline container images into Podman/CRI-O storage
+  ansible.builtin.shell: |
+    for img in "{{ remote_images_dir }}"/*.tar; do
+      podman load -i "$img"
+    done
+  become: true
+  when: offline_install | default(false) | bool

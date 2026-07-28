@@ -1,0 +1,84 @@
+---
+# Control-plane kubeadm upgrade: `kubeadm upgrade apply` on the first
+# control-plane node, `kubeadm upgrade node` on the rest. The apply step is
+# wrapped in block/rescue: on failure it only ever OFFERS an etcd-snapshot
+# rollback and waits for an explicit operator answer — it never restores
+# anything on its own.
+
+- name: Run kubeadm upgrade plan (first control plane only)
+  ansible.builtin.command: kubeadm upgrade plan
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: inventory_hostname == groups['controlplane'][0]
+  register: upgrade_plan
+  changed_when: false
+
+- name: Show upgrade plan
+  ansible.builtin.debug:
+    msg: "{{ upgrade_plan.stdout_lines | default(['No plan output']) }}"
+  when: inventory_hostname == groups['controlplane'][0]
+
+- when: inventory_hostname == groups['controlplane'][0]
+  block:
+    - name: Apply kubeadm upgrade (first control plane only)
+      ansible.builtin.command: kubeadm upgrade apply {{ kubeadm_ver.stdout }} --yes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: upgrade_apply
+      retries: 2
+      delay: 15
+      until: upgrade_apply.rc == 0
+      changed_when: "'SUCCESS' in (upgrade_apply.stdout | default(''))"
+
+    - name: Show upgrade apply output
+      ansible.builtin.debug:
+        msg: "{{ upgrade_apply.stdout_lines | default(['No apply output']) }}"
+  rescue:
+    - name: Report failure
+      ansible.builtin.debug:
+        msg: "kubeadm upgrade apply failed on {{ inventory_hostname }}. etcd snapshot: {{ etcd_snapshot_path }}"
+
+    - name: Multi-CP warning (no auto restore supported)
+      ansible.builtin.fail:
+        msg: >
+          Automatic rollback is not supported for multi-node etcd
+          ({{ groups['controlplane'] | length }} control-plane nodes).
+          Restore manually from {{ etcd_snapshot_path }}.
+      when: groups['controlplane'] | length > 1
+
+    - name: Ask operator whether to restore etcd snapshot and abort
+      ansible.builtin.pause:
+        prompt: >
+          Upgrade failed. Restore etcd from {{ etcd_snapshot_path }} and abort
+          the upgrade? Type 'yes' to restore, anything else to leave the
+          cluster as-is for manual recovery.
+      register: rollback_answer
+      when:
+        - groups['controlplane'] | length == 1
+        - interactive_rollback_prompt | default(true) | bool
+
+    - name: Run operator-confirmed rollback
+      ansible.builtin.include_tasks: upgrade_rollback.yml
+      when:
+        - groups['controlplane'] | length == 1
+        - interactive_rollback_prompt | default(true) | bool
+        - rollback_answer.user_input | default('') | lower == 'yes'
+
+    - name: Halt — manual recovery required
+      ansible.builtin.fail:
+        msg: >
+          Upgrade failed and no rollback was performed. Investigate and, if
+          needed, restore manually from {{ etcd_snapshot_path }}.
+
+- name: Upgrade additional control plane nodes
+  ansible.builtin.command: kubeadm upgrade node
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when:
+    - inventory_hostname in groups['controlplane']
+    - inventory_hostname != groups['controlplane'][0]
+  register: upgrade_node_cp
+  retries: 2
+  delay: 15
+  until: upgrade_node_cp.rc == 0
+  changed_when: true
