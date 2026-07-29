@@ -1,0 +1,35 @@
+---
+# Wait for the LOCAL kube-apiserver static pod to serve traffic again after
+# this node's kubelet was restarted.
+#
+# Only meaningful on control-plane nodes. Anything that stops kubelet (the
+# CRI-O upgrade flow) takes the apiserver static pod down with it, and kubelet
+# needs 30-90s after starting to pull the manifest, recreate the sandbox and
+# pass its own readiness gates. Callers that immediately run a kubectl command
+# against this node (e.g. tasks/upgrade_uncordon_healthcheck.yml, whose
+# uncordon has no retries) hit a connection-refused and fail the play right at
+# the end of an otherwise successful upgrade. Gate on readiness first.
+
+- name: Wait for local kube-apiserver to accept connections on 6443
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    state: started
+    delay: 5
+    timeout: 300
+
+- name: Wait for local kube-apiserver to report ready
+  ansible.builtin.command: kubectl get --raw /readyz
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: apiserver_readyz
+  retries: 30
+  delay: 10
+  until:
+    - apiserver_readyz.rc == 0
+    - "'ok' in (apiserver_readyz.stdout | default(''))"
+  changed_when: false
+
+- name: Show local kube-apiserver readiness
+  ansible.builtin.debug:
+    msg: "kube-apiserver on {{ inventory_hostname }} is ready ({{ apiserver_readyz.stdout | trim }})"

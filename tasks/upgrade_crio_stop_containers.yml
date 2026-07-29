@@ -9,6 +9,31 @@
 # TimeoutStartUSec=infinity), and the RPM upgrade scriptlet hangs with it.
 # Stopping kubelet first prevents it from immediately recreating containers
 # while we tear them down against the still-functional OLD CRI-O.
+#
+# CRI-O-UPGRADE ONLY. Never include this from the Kubernetes component upgrade
+# path (playbooks/upgrade_k8s.yml). `crictl stop` kills the static pod
+# containers too - etcd and kube-apiserver - and with kubelet stopped nothing
+# recreates them, so `kubeadm upgrade apply` (which needs a live API server to
+# read/write the ClusterConfiguration ConfigMap) fails, as do the drain and
+# uncordon tasks that delegate kubectl to groups['controlplane'][0]. It also
+# buys nothing there: a kubelet/kubeadm package swap does not replace the
+# CRI-O socket, so there is no stale-container reconciliation to avoid, and
+# kubeadm recreates the static pods by rewriting their manifests.
+#
+# The caller must opt in explicitly via crio_restart_intended (see the guard
+# below) so this can never be picked up by accident.
+
+- name: Guard - refuse to run outside a CRI-O restart/upgrade flow
+  ansible.builtin.assert:
+    that: crio_restart_intended | default(false) | bool
+    fail_msg: >
+      upgrade_crio_stop_containers.yml was included without
+      crio_restart_intended=true. This task file stops kubelet and every
+      running container (including the etcd/kube-apiserver static pods) and is
+      only safe when CRI-O itself is about to be restarted or upgraded. It
+      will break the Kubernetes component upgrade path. Include it only from
+      playbooks/upgrade_crio.yml, passing crio_restart_intended: true.
+    success_msg: "CRI-O restart intended - proceeding to stop kubelet and containers"
 
 - name: Stop kubelet before CRI-O restart
   ansible.builtin.systemd:

@@ -41,6 +41,8 @@
 
     - name: Stop kubelet and running containers before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
+      vars:
+        crio_restart_intended: true
 
     - name: Install/upgrade CRI-O
       ansible.builtin.include_tasks: ../crio/cri-o.yml
@@ -49,6 +51,13 @@
       ansible.builtin.systemd:
         name: kubelet
         state: started
+
+    # Stopping kubelet above took this node's kube-apiserver static pod down
+    # with it. The uncordon in upgrade_uncordon_healthcheck.yml has no retries,
+    # so without this gate it fires into a connection-refused and fails the
+    # play at the very last step of an otherwise successful upgrade.
+    - name: Wait for local API server to come back before uncordon
+      ansible.builtin.include_tasks: ../tasks/wait_for_apiserver.yml
 
     - name: Uncordon and verify node health
       ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml
@@ -75,6 +84,8 @@
 
     - name: Stop kubelet and running containers before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
+      vars:
+        crio_restart_intended: true
 
     - name: Install/upgrade CRI-O
       ansible.builtin.include_tasks: ../crio/cri-o.yml
@@ -84,5 +95,8 @@
         name: kubelet
         state: started
 
+    # No API-server wait here: workers run no apiserver, and the uncordon
+    # below delegates to groups['controlplane'][0], which this play never
+    # touches.
     - name: Uncordon and verify node health
       ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml
