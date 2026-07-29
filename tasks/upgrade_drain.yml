@@ -6,12 +6,24 @@
     msg: "##### DRAINING NODE: {{ ansible_hostname }} #####"
   delegate_to: "{{ groups['controlplane'][0] }}"
 
+- name: Warn that PodDisruptionBudgets are being bypassed
+  ansible.builtin.debug:
+    msg: >-
+      drain_ignore_pdb is true - draining {{ ansible_hostname }} with
+      --disable-eviction. Pods will be force-deleted without consulting their
+      PodDisruptionBudgets.
+  when: drain_ignore_pdb | default(false) | bool
+
+# --force only covers bare pods that have no controller; it does NOT bypass
+# PodDisruptionBudgets. Only --disable-eviction does, by skipping the eviction
+# API and deleting pods directly.
 - name: Drain node before upgrade
   ansible.builtin.command: >
     kubectl drain {{ ansible_hostname }}
     --ignore-daemonsets
     --delete-emptydir-data
     --force
+    {% if drain_ignore_pdb | default(false) | bool %}--disable-eviction{% endif %}
     --grace-period=60
     --timeout=5m
   environment:

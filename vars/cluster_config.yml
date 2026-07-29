@@ -96,5 +96,40 @@ remove_packages: false
 
 # --- Upgrade Settings (upgrade_k8s.yml) ---
 target_version: "1.30" # Should typically be passed via -e at runtime
+
+# Skip the drain/cordon step during upgrades.
+#
+# Set true when workloads are pinned to a node (nodeSelector/affinity) and
+# have nowhere else to go - e.g. a 2-node cluster where app pods select the
+# main node. Draining there is worse than not draining: eviction either gets
+# blocked by PodDisruptionBudgets, or (if the PDBs are removed) the pods go
+# Pending for the whole upgrade because no other node matches their selector.
+# Without a drain, containers simply restart in place on the same node.
+#
+# For upgrade_k8s.yml specifically, a drain buys nothing regardless of
+# topology: restarting kubelet does not kill running containers, so workloads
+# survive a kubeadm/kubelet package upgrade untouched.
+#
+# For upgrade_crio.yml the node's containers ARE torn down either way (CRI-O
+# is being replaced), so skipping the drain shortens the outage rather than
+# creating one.
+skip_drain: false
+
+# Ignore PodDisruptionBudgets during drain (adds --disable-eviction).
+#
+# Bypasses the eviction API and force-deletes pods outright, so PDBs are not
+# consulted at all. Use when a PDB can never be satisfied - e.g. a Deployment
+# at replicas=1 behind minAvailable=1, or replicas concentrated on the node
+# being drained.
+#
+# Two things to weigh before enabling:
+#   - Quorum: force-deleting several members of a quorum-based StatefulSet
+#     (etcd, zookeeper, consul) at once can take the datastore below quorum.
+#     The PDB is usually the only thing preventing that.
+#   - Pinned workloads: drain cordons the node first. Pods that are pinned
+#     back to that same node via nodeSelector/affinity have nowhere to go and
+#     stay Pending until the uncordon at the end of the node's upgrade. For
+#     that topology skip_drain gives a shorter outage than this flag.
+drain_ignore_pdb: false
 interactive_rollback_prompt: true  # If a control-plane upgrade fails, pause and ask before restoring the etcd snapshot.
                                     # Set false for headless/CI runs (fails without prompting; still no automatic rollback).

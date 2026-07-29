@@ -38,6 +38,7 @@
   tasks:
     - name: Drain node before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+      when: not (skip_drain | default(false) | bool)
 
     - name: Stop kubelet and running containers before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
@@ -81,6 +82,7 @@
   tasks:
     - name: Drain node before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+      when: not (skip_drain | default(false) | bool)
 
     - name: Stop kubelet and running containers before CRI-O restart
       ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml

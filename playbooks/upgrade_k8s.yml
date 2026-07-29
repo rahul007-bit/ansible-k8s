@@ -73,6 +73,7 @@
 
     - name: Drain node before upgrade
       ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+      when: not (skip_drain | default(false) | bool)
 
     - name: Upgrade kubelet and kubectl
       ansible.builtin.include_tasks: ../tasks/upgrade_kubelet_kubectl.yml
@@ -105,6 +106,7 @@
 
     - name: Drain node before upgrade
       ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+      when: not (skip_drain | default(false) | bool)
 
     - name: Upgrade kubelet and kubectl
       ansible.builtin.include_tasks: ../tasks/upgrade_kubelet_kubectl.yml
