@@ -35,6 +35,61 @@
   until: node_ready.stdout == "True"
   changed_when: false
 
+- name: Verify control-plane static pods are Running after upgrade
+  # kubectl get node reporting Ready only reflects kubelet's own health, not
+  # whether THIS node's own static pods actually came back up. kubeadm
+  # upgrade apply rewrites the etcd/apiserver/scheduler/controller-manager
+  # manifests, and a kubelet-side race can occasionally leave one silently
+  # stuck Exited/CrashLoopBackOff while the node still reports Ready - the
+  # next hop's `kubeadm upgrade apply` then fails immediately trying to read
+  # the kubeadm-config ConfigMap ("connection refused" on :6443), pointing at
+  # the wrong version entirely. Catch it here, one hop earlier, instead.
+  # Proven manual fix (hit twice in prod) was a plain kubelet restart, so
+  # that's the one recovery attempt made automatically before failing for
+  # real.
+  block:
+    - name: Check static pod phase
+      ansible.builtin.command: >
+        kubectl get pod -n kube-system {{ item }}-{{ ansible_hostname }}
+        -o jsonpath='{.status.phase}'
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      loop:
+        - etcd
+        - kube-apiserver
+        - kube-scheduler
+        - kube-controller-manager
+      register: static_pod_phase
+      retries: 12
+      delay: 10
+      until: static_pod_phase.stdout == "Running"
+      changed_when: false
+  rescue:
+    - name: Restart kubelet to recover stuck static pods
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+
+    - name: Re-check static pod phase after kubelet restart
+      ansible.builtin.command: >
+        kubectl get pod -n kube-system {{ item }}-{{ ansible_hostname }}
+        -o jsonpath='{.status.phase}'
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      delegate_to: "{{ groups['controlplane'][0] }}"
+      loop:
+        - etcd
+        - kube-apiserver
+        - kube-scheduler
+        - kube-controller-manager
+      register: static_pod_phase_retry
+      retries: 12
+      delay: 10
+      until: static_pod_phase_retry.stdout == "Running"
+      changed_when: false
+  when: inventory_hostname in groups['controlplane']
+
 - name: Check kubelet version
   ansible.builtin.command: kubelet --version
   register: kubelet_ver
