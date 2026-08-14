@@ -4,7 +4,7 @@
 kube_user: "{{ ansible_user | default('ubuntu') }}"
 
 # --- Prerequisite Settings ---
-run_prerequisites: true
+run_prerequisites: false
 
 prereq_min_requirements:
   # You can define requirements by exact hostname (highest priority)
@@ -37,7 +37,7 @@ prereq_whitelisted_urls:
   - "https://google.com"
 
 # --- Offline Installation Settings ---
-offline_install: true
+offline_install: false
 offline_pkg_type: "dir"               # Options: "zip" or "dir"
 offline_pkg_source: "remote"      # Options: "controller" (transfer from host) or "remote" (already on server)
 offline_pkg_path: "/home/{{ kube_user }}/k8s_packages"       # Local path (if source=controller) or Remote path (if source=remote)
@@ -96,6 +96,15 @@ remove_packages: false
 
 # --- Upgrade Settings (upgrade_k8s.yml) ---
 target_version: "1.30" # Should typically be passed via -e at runtime
+
+# Delegate target for kubectl drain/uncordon during upgrades. Defaults to
+# the first control-plane inventory host. Falls back to the node itself
+# when no controlplane group is visible - the case for
+# playbooks/upgrade_k8s_local.yml, run per-node with a single-host
+# inventory and no cross-node SSH.
+kubectl_delegate_host: >-
+  {{ inventory_hostname if (groups['controlplane'] | default([]) | length == 0)
+  else groups['controlplane'][0] }}
 
 # Skip the drain/cordon step during upgrades.
 #

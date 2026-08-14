@@ -4,7 +4,7 @@
 - name: "#########################################################"
   ansible.builtin.debug:
     msg: "##### DRAINING NODE: {{ ansible_hostname }} #####"
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
 
 - name: Warn that PodDisruptionBudgets are being bypassed
   ansible.builtin.debug:
@@ -28,7 +28,7 @@
     --timeout=5m
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
   retries: 3
   delay: 10
   register: drain_result
@@ -38,5 +38,5 @@
 - name: Show Drain Output
   ansible.builtin.debug:
     var: drain_result.stdout_lines
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
   when: drain_result.stdout_lines is defined

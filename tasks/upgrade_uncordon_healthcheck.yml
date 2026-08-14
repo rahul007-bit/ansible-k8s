@@ -9,7 +9,7 @@
   ansible.builtin.command: kubectl uncordon {{ ansible_hostname }}
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
   register: uncordon_result
   retries: 6
   delay: 5
@@ -19,7 +19,7 @@
 - name: Show Uncordon Output
   ansible.builtin.debug:
     var: uncordon_result.stdout_lines
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
   when: uncordon_result.stdout_lines is defined
 
 - name: Wait for node to report Ready after upgrade
@@ -28,7 +28,7 @@
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  delegate_to: "{{ groups['controlplane'][0] }}"
+  delegate_to: "{{ kubectl_delegate_host }}"
   register: node_ready
   retries: 12
   delay: 10
@@ -54,7 +54,7 @@
         -o jsonpath='{.status.phase}'
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
-      delegate_to: "{{ groups['controlplane'][0] }}"
+      delegate_to: "{{ kubectl_delegate_host }}"
       loop:
         - etcd
         - kube-apiserver
@@ -77,7 +77,7 @@
         -o jsonpath='{.status.phase}'
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
-      delegate_to: "{{ groups['controlplane'][0] }}"
+      delegate_to: "{{ kubectl_delegate_host }}"
       loop:
         - etcd
         - kube-apiserver
@@ -88,7 +88,7 @@
       delay: 10
       until: static_pod_phase_retry.stdout == "Running"
       changed_when: false
-  when: inventory_hostname in groups['controlplane']
+  when: inventory_hostname in groups.get('controlplane', [])
 
 - name: Check kubelet version
   ansible.builtin.command: kubelet --version

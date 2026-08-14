@@ -4,6 +4,9 @@
 # tasks/upgrade_rollback.yml, which only runs after explicit operator
 # confirmation.
 
+- name: Ensure etcdctl is available
+  ansible.builtin.include_tasks: install_etcdctl.yml
+
 - name: Ensure etcd backup directory exists
   ansible.builtin.file:
     path: /var/backups

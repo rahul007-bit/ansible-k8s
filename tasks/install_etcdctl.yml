@@ -1,0 +1,42 @@
+---
+# CP-only, idempotent: etcdctl isn't installed as a standalone package by
+# kubeadm - only the etcd container image ships it. Pull it out of that
+# same image (already present locally from the running etcd static pod)
+# instead of fetching a separate release tarball from the network.
+
+- name: Check for existing etcdctl
+  ansible.builtin.command: command -v etcdctl
+  register: etcdctl_check
+  changed_when: false
+  failed_when: false
+
+- when: etcdctl_check.rc != 0
+  block:
+    - name: Get etcd image reference from the running static pod manifest
+      ansible.builtin.shell: >
+        grep -oP '(?<=^\s{4}- image: ).*' /etc/kubernetes/manifests/etcd.yaml
+      register: etcd_image
+      changed_when: false
+
+    - name: Create a throwaway container from the etcd image
+      ansible.builtin.command: podman create {{ etcd_image.stdout }} true
+      register: etcdctl_extract_cid
+      changed_when: true
+
+    - name: Copy etcdctl out of the container
+      ansible.builtin.command: >
+        podman cp {{ etcdctl_extract_cid.stdout }}:/usr/local/bin/etcdctl /usr/local/bin/etcdctl
+      changed_when: true
+
+    - name: Remove the throwaway container
+      ansible.builtin.command: podman rm {{ etcdctl_extract_cid.stdout }}
+      changed_when: true
+
+    - name: Make etcdctl executable
+      ansible.builtin.file:
+        path: /usr/local/bin/etcdctl
+        mode: "0755"
+
+    - name: Verify etcdctl works
+      ansible.builtin.command: etcdctl version
+      changed_when: false

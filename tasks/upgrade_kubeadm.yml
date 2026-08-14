@@ -1,11 +1,20 @@
 ---
 # Step 1 (repo/GPG setup) + Step 2 (install kubeadm to target_version), online
 # and offline paths, plus a version-verify assert.
+#
+# pkgs.k8s.io repos are keyed by MINOR version only (v1.36, never v1.36.3) -
+# derive that separately so passing a full patch version in target_version
+# (e.g. 1.36.3) still resolves a repo that exists, while package installs
+# below keep the full target_version for precise pinning.
+
+- name: Derive minor version for the pkgs.k8s.io repo path
+  ansible.builtin.set_fact:
+    target_minor_version: "{{ target_version | regex_search('^\\d+\\.\\d+') }}"
 
 # ---- Step 1: Update package repos to target version (online only) ----
 - name: Download Kubernetes GPG key for target version (Ubuntu)
   ansible.builtin.get_url:
-    url: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/Release.key"
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/deb/Release.key"
     dest: /tmp/kubernetes-release-key-{{ target_version }}.gpg
     mode: "0644"
   when:
@@ -23,7 +32,7 @@
 
 - name: Update Kubernetes repository to target version (Ubuntu)
   ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/deb/ /"
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/deb/ /"
     state: present
     filename: kubernetes
   when:
@@ -33,9 +42,9 @@
   ansible.builtin.yum_repository:
     name: kubernetes
     description: Kubernetes
-    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/"
+    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/rpm/"
     gpgcheck: true
-    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_version }}/rpm/repodata/repomd.xml.key"
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/rpm/repodata/repomd.xml.key"
     enabled: true
   when:
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
@@ -49,7 +58,7 @@
     - not (offline_install | bool)
 - name: Upgrade kubeadm (Ubuntu)
   ansible.builtin.apt:
-    name: "kubeadm={{ target_version }}.*"
+    name: "kubeadm={{ target_version }}*"
     state: present
     allow_downgrade: true
     allow_change_held_packages: true
@@ -58,7 +67,7 @@
     - not (offline_install | bool)
 - name: Upgrade kubeadm (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
-    name: "kubeadm-{{ target_version }}.*"
+    name: "kubeadm-{{ target_version }}*"
     state: present
     allow_downgrade: true
   when:

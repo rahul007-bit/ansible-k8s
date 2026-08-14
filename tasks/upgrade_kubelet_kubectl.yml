@@ -5,8 +5,8 @@
 - name: Upgrade kubelet and kubectl (Ubuntu)
   ansible.builtin.apt:
     name:
-      - "kubelet={{ target_version }}.*"
-      - "kubectl={{ target_version }}.*"
+      - "kubelet={{ target_version }}*"
+      - "kubectl={{ target_version }}*"
     state: present
     allow_downgrade: true
     allow_change_held_packages: true
@@ -16,8 +16,8 @@
 - name: Upgrade kubelet and kubectl (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
     name:
-      - "kubelet-{{ target_version }}.*"
-      - "kubectl-{{ target_version }}.*"
+      - "kubelet-{{ target_version }}*"
+      - "kubectl-{{ target_version }}*"
     state: present
     allow_downgrade: true
   when:
