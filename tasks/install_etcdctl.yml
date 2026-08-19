@@ -13,8 +13,11 @@
 - when: etcdctl_check.rc != 0
   block:
     - name: Get etcd image reference from the running static pod manifest
+      # "image:" is a plain key under the container's field list, not
+      # necessarily the list item's first key - so it may or may not carry
+      # the "- " list marker depending on container field order. Match both.
       ansible.builtin.shell: >
-        grep -oP '(?<=^\s{4}- image: ).*' /etc/kubernetes/manifests/etcd.yaml
+        grep -oP '^\s{4}(- )?image: \K.*' /etc/kubernetes/manifests/etcd.yaml
       register: etcd_image
       changed_when: false
 

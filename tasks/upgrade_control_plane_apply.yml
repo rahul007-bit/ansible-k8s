@@ -6,7 +6,13 @@
 # anything on its own.
 
 - name: Run kubeadm upgrade plan (first control plane only)
-  ansible.builtin.command: kubeadm upgrade plan
+  # --ignore-preflight-errors=CreateJob: kubeadm's health-check runs a throwaway
+  # Job, and the k8s scheduler can place its pod on ANY Ready node - not just
+  # this control-plane - so it can fail pulling the target pause image on a
+  # node that hasn't loaded the new version's bundle yet (offline, no
+  # internet). Not the real upgrade, safe to skip; kubeadm still checks
+  # etcd/apiserver health directly elsewhere.
+  ansible.builtin.command: kubeadm upgrade plan --ignore-preflight-errors=CreateJob
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   when: inventory_hostname == groups['controlplane'][0]
@@ -21,7 +27,9 @@
 - when: inventory_hostname == groups['controlplane'][0]
   block:
     - name: Apply kubeadm upgrade (first control plane only)
-      ansible.builtin.command: kubeadm upgrade apply {{ kubeadm_ver.stdout }} --yes
+      ansible.builtin.command: >
+        kubeadm upgrade apply {{ kubeadm_ver.stdout }} --yes
+        --ignore-preflight-errors=CreateJob
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
       register: upgrade_apply

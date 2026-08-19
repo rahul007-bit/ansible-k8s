@@ -4,21 +4,23 @@
 # [worker]
 # prod-rhel9-model ansible_host=10.142.0.4 ansible_user=jrspy ansible_ssh_private_key_file=/home/username/.ssh/key.pem
 
-# Real test infra used this session (airgapped, behind VPN jumphost). Kept
-# here commented out for reference - uncomment and comment out the
-# placeholder entries above to reconnect.
+# Real test infra used this session (home network, behind VPN jumphost
+# 10.8.0.5). Kept here commented out for reference - uncomment and comment
+# out the placeholder entries above to reconnect.
+# ssh -J root@10.8.0.5 root@192.168.50.170   # node1 (controlplane)
+# ssh -J root@10.8.0.5 root@192.168.50.169   # node2 (worker)
 [controlplane]
-node1 ansible_host=192.168.1.57 ansible_user=root
+node1 ansible_host=192.168.50.170 ansible_user=root
 
 [worker]
-node2 ansible_host=192.168.1.56 ansible_user=root
+node2 ansible_host=192.168.50.169 ansible_user=root
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
-# ansible_ssh_common_args='-o ProxyJump=root@10.8.0.5'
+ansible_ssh_common_args='-o ProxyJump=root@10.8.0.5'
 
-# --- playbooks/upgrade_k8s_local.yml (no cross-node SSH) ---
-# Run this playbook FROM each node against a copy of this same file, with
+# --- playbooks/upgrade_k8s_local.yml / upgrade_crio_local.yml (no cross-node SSH) ---
+# Run these playbooks FROM each node against a copy of this same file, with
 # the OTHER role's group commented out and the node's own line switched to
 # a local connection - e.g. on node1 (control-plane) comment out [worker]
 # and use:

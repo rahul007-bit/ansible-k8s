@@ -1,0 +1,70 @@
+---
+# Upgrade CRI-O on a single node in place, run directly ON that node - for
+# clusters where the ansible controller can't reach every node from one
+# place (no cross-node SSH allowed). Same convention as
+# playbooks/upgrade_k8s_local.yml: install ansible on each node and invoke
+# this playbook there against a copy of the repo's `hosts` file with the
+# OTHER role's group commented out and this node's line switched to a local
+# connection - see the block at the bottom of `hosts`. On the control-plane
+# node that's:
+#   [controlplane]
+#   node1 ansible_connection=local
+# and on a worker:
+#   [worker]
+#   node2 ansible_connection=local
+#
+# Upgrade control-plane node(s) to completion FIRST, then each worker one at
+# a time - each invocation only ever sees itself, so nothing here
+# orchestrates that order for you.
+#
+# Worker nodes need /etc/kubernetes/admin.conf staged out-of-band beforehand
+# (drain/uncordon need it, see upgrade_k8s_local.yml).
+#
+# Same offline_install support as upgrade_crio.yml (vars/cluster_config.yml).
+#
+# Usage (on each node, against its own toggled copy of `hosts`):
+#   ansible-playbook -i hosts playbooks/upgrade_crio_local.yml -e crio_version=v1.36
+
+- name: Upgrade CRI-O (local, no cross-node SSH)
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../vars/cluster_config.yml
+  pre_tasks:
+    - name: Fail if crio_version is not set
+      ansible.builtin.fail:
+        msg: "You must specify crio_version. Example: -e crio_version=v1.36"
+      when: crio_version == ""
+
+    - name: Stage offline packages/images
+      ansible.builtin.include_tasks: ../tasks/offline_package_prep.yml
+      when: offline_install | bool
+  tasks:
+    - name: Drain node before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_drain.yml
+      when: not (skip_drain | default(false) | bool)
+
+    - name: Stop kubelet and running containers before CRI-O restart
+      ansible.builtin.include_tasks: ../tasks/upgrade_crio_stop_containers.yml
+      vars:
+        crio_restart_intended: true
+
+    - name: Install/upgrade CRI-O
+      ansible.builtin.include_tasks: ../crio/cri-o.yml
+
+    - name: Start kubelet after CRI-O upgrade
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+
+    # Only control-plane nodes ran kube-apiserver as a static pod that
+    # stopping kubelet took down with it - a worker has nothing to wait for
+    # here, and wait_for_apiserver.yml polls 127.0.0.1:6443, which would
+    # just time out on a worker.
+    - name: Wait for local API server to come back before uncordon
+      ansible.builtin.include_tasks: ../tasks/wait_for_apiserver.yml
+      when: inventory_hostname in groups.get('controlplane', [])
+
+    - name: Uncordon and verify node health
+      ansible.builtin.include_tasks: ../tasks/upgrade_uncordon_healthcheck.yml
