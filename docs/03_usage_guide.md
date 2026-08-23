@@ -162,7 +162,17 @@ When set to `true`, runs full distribution package upgrades before cluster confi
 firewall_enabled: true
 ```
 
-Configures `firewalld` (RHEL, CentOS, Fedora, Rocky) or `ufw` (Ubuntu, Debian) to open required Kubernetes and CNI ports. To manage firewall rules externally, set `firewall_enabled: false`.
+Configures `firewalld` (RHEL, CentOS, Fedora, Rocky) or `ufw` (Ubuntu, Debian) to open required Kubernetes and CNI ports. When Calico is used on RHEL distributions, the playbook also configures the `ipip` encapsulation protocol, adds Calico interfaces (`cali+`, `tunl0`, `vxlan.calico`) and `pod_network_cidr` to the `trusted` zone, and enables firewall masquerading. To manage firewall rules externally, set `firewall_enabled: false`.
+
+### Pod CIDR collision validation
+
+During cluster creation and pre-flight checks, Ansible verifies that `pod_network_cidr` does not overlap with any node's physical IP address. To override the Pod CIDR at runtime:
+
+```bash
+ansible-playbook -i hosts playbooks/create_k8s.yml -e pod_network_cidr=10.244.0.0/16
+```
+
+To bypass the safety check explicitly: `-e allow_cidr_collision=true`.
 
 ### Optional package removal (reset)
 

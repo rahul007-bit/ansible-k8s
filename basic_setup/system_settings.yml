@@ -43,6 +43,54 @@
         - firewall_enabled | bool
         - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
 
+    - name: Configure firewalld Calico protocols (RHEL/Fedora)
+      ansible.posix.firewalld:
+        protocol: "{{ item.proto }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      loop: "{{ firewall_allowed_protocols_cni['calico'] | default([]) }}"
+      when:
+        - firewall_enabled | bool
+        - cni_plugin == 'calico'
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+
+    - name: Add Calico interfaces to firewalld trusted zone (RHEL/Fedora)
+      ansible.posix.firewalld:
+        zone: trusted
+        interface: "{{ item }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      loop: "{{ firewall_cni_interfaces['calico'] | default([]) }}"
+      when:
+        - firewall_enabled | bool
+        - cni_plugin == 'calico'
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+
+    - name: Add Pod CIDR to firewalld trusted zone for Calico (RHEL/Fedora)
+      ansible.posix.firewalld:
+        zone: trusted
+        source: "{{ pod_network_cidr }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      when:
+        - firewall_enabled | bool
+        - cni_plugin == 'calico'
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+
+    - name: Enable firewalld masquerade for Calico (RHEL/Fedora)
+      ansible.posix.firewalld:
+        masquerade: true
+        permanent: true
+        state: enabled
+        immediate: true
+      when:
+        - firewall_enabled | bool
+        - cni_plugin == 'calico'
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+
     - name: Configure ufw ports (Ubuntu/Debian)
       community.general.ufw:
         rule: allow

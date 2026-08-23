@@ -202,10 +202,10 @@ Expected output returns `x86_64` or `aarch64`.
 
 ## 6. Network requirements
 
-The following ports must be open between nodes:
+The following ports and protocols must be open between nodes:
 
-| Purpose | Port | Protocol | Scope |
-| ------- | ---- | -------- | ----- |
+| Purpose | Port / Protocol | Protocol | Scope |
+| ------- | --------------- | -------- | ----- |
 | Kubernetes API server | 6443 | TCP | Control plane |
 | etcd server client API | 2379-2380 | TCP | Control plane |
 | Kubelet API | 10250 | TCP | All nodes |
@@ -214,7 +214,10 @@ The following ports must be open between nodes:
 | NodePort services | 30000-32767 | TCP | Worker nodes |
 | Calico BGP | 179 | TCP | Calico CNI |
 | Calico VXLAN | 4789 | UDP | Calico CNI |
+| Calico IPIP Tunnel | Protocol 4 (ipip) | IP | Calico CNI (when IPIP is enabled) |
 | Flannel VXLAN | 8472 | UDP | Flannel CNI |
+
+> **CIDR Overlap Rule:** The `pod_network_cidr` must not overlap with your host LAN subnets. If your physical network is `192.168.x.x`, avoid using `192.168.0.0/16` for pods. Pass a non-overlapping CIDR such as `10.244.0.0/16` or `172.16.0.0/16` to prevent routing collisions.
 
 ---
 

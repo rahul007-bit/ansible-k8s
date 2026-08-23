@@ -181,7 +181,7 @@
 
 - name: Copy port listener script
   ansible.builtin.copy:
-    src: scripts/port_listener.py
+    src: "{{ playbook_dir }}/../scripts/port_listener.py"
     dest: /tmp/k8s_prereq/port_listener.py
     mode: '0755'
 
@@ -225,7 +225,22 @@
     label: "{{ item.item[0].port }}/TCP → {{ item.item[1] }}"
 
 # ─────────────────────────────────────────────
-# 6. Print Summary
+# 6. Pod CIDR and Host Subnet Collision Check
+# ─────────────────────────────────────────────
+- name: Check for IP collision between host network and pod CIDR
+  ansible.builtin.command: >-
+    python3 -c 'import sys, ipaddress; sys.exit(1 if ipaddress.ip_address("{{ ansible_facts["default_ipv4"]["address"] | default(ansible_facts["all_ipv4_addresses"][0]) }}") in ipaddress.ip_network("{{ pod_network_cidr }}", strict=False) else 0)'
+  register: cidr_collision_check
+  failed_when: false
+  changed_when: false
+
+- name: Collect CIDR collision failure
+  ansible.builtin.set_fact:
+    _prereq_failures: "{{ _prereq_failures + ['CIDR COLLISION: Host IP ' + (ansible_facts['default_ipv4']['address'] | default(ansible_facts['all_ipv4_addresses'][0])) + ' is inside pod_network_cidr (' + pod_network_cidr + '). Overlap will break pod-to-node routing. Set a non-overlapping pod_network_cidr (e.g. 10.244.0.0/16 or 172.16.0.0/16).'] }}"
+  when: cidr_collision_check.rc == 1
+
+# ─────────────────────────────────────────────
+# 7. Print Summary
 # ─────────────────────────────────────────────
 - name: Print prerequisite summary
   ansible.builtin.debug:

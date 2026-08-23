@@ -29,6 +29,10 @@ Validates inter-node network and firewall rules:
 2. Runs `ansible.builtin.wait_for` from every node to every other node to verify TCP communication.
 3. Fails with source and destination details if a port is unreachable.
 
+### 6. Pod CIDR and host subnet collision
+
+Verifies that `pod_network_cidr` does not overlap with the physical network IP of any cluster node. If a collision is detected (for example, using `192.168.0.0/16` on a `192.168.50.0/24` LAN), the check fails with recommendations to change `pod_network_cidr` to prevent asymmetric routing and API server timeouts.
+
 ## Running the checks
 
 Run pre-flight checks independently:

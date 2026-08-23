@@ -23,4 +23,5 @@ Foundational OS tasks executed across all nodes before container runtime and Kub
 
 4. **Firewall service and ports:**
    - Ensures `firewalld` (RHEL/Rocky/Fedora) or `ufw` (Debian/Ubuntu) is enabled and running when `firewall_enabled: true`.
-   - Opens Kubernetes API, etcd, kubelet, and CNI ports.
+   - Opens Kubernetes API, etcd, kubelet, and CNI ports (Flannel VXLAN `8472/udp`, Calico BGP `179/tcp`, Calico VXLAN `4789/udp`).
+   - For Calico on RHEL: opens IP protocol `ipip`, adds `cali+`, `tunl0`, and `vxlan.calico` interfaces along with `pod_network_cidr` to the `trusted` zone, and enables masquerading.

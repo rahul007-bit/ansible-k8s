@@ -74,6 +74,20 @@ firewall_allowed_ports_cni:
   flannel:
     - { port: "8472", proto: "udp" }       # Flannel VXLAN
 
+firewall_allowed_protocols_cni:
+  calico:
+    - { proto: "ipip" }                    # Calico IPIP encapsulation protocol
+  flannel: []
+
+firewall_cni_interfaces:
+  calico:
+    - "cali+"
+    - "tunl0"
+    - "vxlan.calico"
+  flannel:
+    - "flannel+"
+    - "cni0"
+
 # These are internal mappings for CNI manifests and CIDRs
 # You can modify them if you need custom manifests or CIDRs
 cni_manifest_urls:

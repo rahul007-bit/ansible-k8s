@@ -6,6 +6,24 @@
   vars_files:
     - ../vars/cluster_config.yml
   tasks:
+    - name: Check for IP collision between host network and pod CIDR
+      ansible.builtin.command: >-
+        python3 -c 'import sys, ipaddress; sys.exit(1 if ipaddress.ip_address("{{ ansible_facts["default_ipv4"]["address"] | default(ansible_facts["all_ipv4_addresses"][0]) }}") in ipaddress.ip_network("{{ pod_network_cidr }}", strict=False) else 0)'
+      register: cidr_collision_check
+      failed_when: false
+      changed_when: false
+
+    - name: Halt on Pod CIDR and host subnet collision
+      ansible.builtin.fail:
+        msg: >-
+          Host IP ({{ ansible_facts['default_ipv4']['address'] | default(ansible_facts['all_ipv4_addresses'][0]) }}) on {{ inventory_hostname }} is inside pod_network_cidr ({{ pod_network_cidr }}).
+          This overlap causes routing deadlocks and breaks pod-to-node/API server traffic.
+          Please pass a non-overlapping pod_network_cidr (e.g. -e pod_network_cidr=10.244.0.0/16 or -e pod_network_cidr=172.16.0.0/16) or update vars/cluster_config.yml.
+          To bypass this check, pass -e allow_cidr_collision=true.
+      when:
+        - cidr_collision_check.rc == 1
+        - not (allow_cidr_collision | default(false) | bool)
+
     - name: Run Prerequisites Check
       ansible.builtin.include_tasks: ../tasks/prerequisites.yml
       when: run_prerequisites | default(false) | bool
@@ -102,6 +120,16 @@
       when: inventory_hostname == groups['controlplane'][0]
 
     # ---- Apply CNI ----
+    - name: Download Calico manifest (Online)
+      ansible.builtin.get_url:
+        url: "{{ cni_manifest_urls['calico'] }}"
+        dest: /tmp/kube-calico.yml
+        mode: "0644"
+      when:
+        - inventory_hostname == groups['controlplane'][0]
+        - cni_plugin == "calico"
+        - not (offline_install | bool)
+
     - name: Transfer CNI manifest (Offline)
       ansible.builtin.copy:
         src: "kube-{{ cni_plugin }}.yml"
@@ -110,10 +138,20 @@
       when: 
         - inventory_hostname == groups['controlplane'][0]
         - offline_install | bool
+
+    - name: Set CALICO_IPV4POOL_CIDR in Calico manifest
+      ansible.builtin.replace:
+        path: /tmp/kube-calico.yml
+        regexp: '(?m)^(\s*#\s*)?- name: CALICO_IPV4POOL_CIDR\n(\s*#\s*)?  value: ".*"'
+        replace: '            - name: CALICO_IPV4POOL_CIDR\n              value: "{{ pod_network_cidr }}"'
+      when:
+        - inventory_hostname == groups['controlplane'][0]
+        - cni_plugin == "calico"
+
     - name: Apply CNI {{ cni_plugin }}
       ansible.builtin.command: >-
         kubectl apply -f 
-        {% if offline_install | bool %}/tmp/kube-{{ cni_plugin }}.yml{% else %}{{ cni_manifest_urls[cni_plugin] }}{% endif %}
+        {% if cni_plugin == 'calico' or (offline_install | bool) %}/tmp/kube-{{ cni_plugin }}.yml{% else %}{{ cni_manifest_urls[cni_plugin] }}{% endif %}
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
       when: inventory_hostname == groups['controlplane'][0]
