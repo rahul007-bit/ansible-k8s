@@ -8,20 +8,29 @@
       ansible.posix.selinux:
         policy: targeted
         state: permissive
-      when: ansible_os_family == 'RedHat'
+      when: ansible_facts['os_family'] == 'RedHat'
 
     - name: Disable SELinux immediately
       ansible.builtin.command: setenforce 0
       failed_when: false
       changed_when: false
-      when: ansible_os_family == 'RedHat'
+      when: ansible_facts['os_family'] == 'RedHat'
 
     - name: Ensure hostname is resolvable in /etc/hosts
       ansible.builtin.lineinfile:
         path: /etc/hosts
-        regexp: '^{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}'
-        line: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }} {{ inventory_hostname }}"
+        regexp: '^{{ ansible_facts["default_ipv4"]["address"] | default(ansible_facts["all_ipv4_addresses"][0]) }}'
+        line: "{{ ansible_facts['default_ipv4']['address'] | default(ansible_facts['all_ipv4_addresses'][0]) }} {{ inventory_hostname }}"
         state: present
+
+    - name: Ensure firewalld is running and enabled (RHEL/Fedora)
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+      when:
+        - firewall_enabled | bool
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
 
     - name: Configure firewalld ports (RHEL/Fedora)
       ansible.posix.firewalld:
@@ -32,7 +41,7 @@
       loop: "{{ firewall_allowed_ports_common + firewall_allowed_ports_cni[cni_plugin] }}"
       when: 
         - firewall_enabled | bool
-        - ansible_distribution in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RHEL", "RedHat", "Rocky"]
 
     - name: Configure ufw ports (Ubuntu/Debian)
       community.general.ufw:
@@ -42,7 +51,7 @@
       loop: "{{ firewall_allowed_ports_common + firewall_allowed_ports_cni[cni_plugin] }}"
       when: 
         - firewall_enabled | bool
-        - ansible_distribution in ["Ubuntu", "Debian"]
+        - ansible_facts['distribution'] in ["Ubuntu", "Debian"]
 
     - name: Setup networking kernel modules for kubernetes (persist across reboot)
       ansible.builtin.blockinfile:
@@ -102,7 +111,7 @@
       register: zram_pkg_check
       failed_when: false
       changed_when: false
-      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+      when: ansible_facts['distribution'] in ["Fedora", "CentOS", "RedHat"]
 
     - name: Uninstall zram-generator package (Fedora, CentOS, RedHat)
       # Uses rpm directly instead of ansible.builtin.dnf: the dnf module
@@ -111,7 +120,7 @@
       # airgapped hosts (fast online, slow/hanging offline).
       ansible.builtin.command: rpm -e zram-generator-defaults
       when:
-        - ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+        - ansible_facts['distribution'] in ["Fedora", "CentOS", "RedHat"]
         - zram_pkg_check.rc == 0
       become: true
 
@@ -120,14 +129,14 @@
         path: /etc/fstab
         regexp: ^([^#].*?\szram\s+.*)$
         replace: "# \\1"
-      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+      when: ansible_facts['distribution'] in ["Fedora", "CentOS", "RedHat"]
 
     - name: Remove any ZRAM swap configuration files (Fedora, CentOS, RedHat)
       ansible.builtin.file:
         path: /etc/systemd/system/zram.service
         state: absent
       register: zram_unit_removed
-      when: ansible_distribution in ["Fedora", "CentOS", "RedHat"]
+      when: ansible_facts['distribution'] in ["Fedora", "CentOS", "RedHat"]
       become: true
 
     - name: Reload systemd after removing ZRAM unit file

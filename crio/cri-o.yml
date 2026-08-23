@@ -21,7 +21,7 @@
           - gpg
           - apt-transport-https
         state: present
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Add CRI-O GPG key (Ubuntu)
       ansible.builtin.shell: |
@@ -29,20 +29,23 @@
         gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg --yes
       args:
         creates: /etc/apt/keyrings/cri-o-apt-keyring.gpg
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Remove legacy openSUSE kubic CRI-O repositories (Ubuntu)
       ansible.builtin.shell: rm -f /etc/apt/sources.list.d/devel:kubic*
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Add CRI-O apt repository (Ubuntu)
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [trusted=yes signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg]
-          https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/deb/ /
+      ansible.builtin.deb822_repository:
+        name: cri-o
+        types: [deb]
+        uris: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/deb/"
+        suites: ["/"]
+        signed_by: /etc/apt/keyrings/cri-o-apt-keyring.gpg
+        trusted: true
+        install_python_debian: true
         state: present
-        filename: cri-o
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Install CRI-O (Ubuntu)
       ansible.builtin.apt:
@@ -50,7 +53,7 @@
         state: latest
         update_cache: true
         dpkg_options: 'force-overwrite'
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     # ---- RHEL / CentOS / Fedora (Online)----
     - name: Remove broken legacy cri-o.repo (RHEL/CentOS/Fedora)
@@ -58,7 +61,7 @@
         path: /etc/yum.repos.d/cri-o.repo
         state: absent
       when: 
-        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
         - not (offline_install | bool)
     - name: Add CRI-O package repo (RHEL/CentOS/Fedora)
       ansible.builtin.yum_repository:
@@ -69,7 +72,7 @@
         gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
         enabled: true
       when: 
-        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
         - not (offline_install | bool)
     - name: Install CRI-O (RHEL/CentOS/Fedora)
       ansible.builtin.dnf:
@@ -78,21 +81,21 @@
         allow_downgrade: true
         disable_gpg_check: true
       when: 
-        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
         - not (offline_install | bool)
     # ---- Offline Installation (RPM) ----
     - name: Install CRI-O from local files (Offline - RPM)
       ansible.builtin.shell: "rpm -Uvh --replacepkgs --oldpackage $(find {{ remote_pkg_dir }} -name '*.rpm')"
       when: 
         - offline_install | bool
-        - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+        - ansible_facts['distribution'] in ['Fedora', 'RedHat', 'CentOS']
 
     # ---- Offline Installation (DEB) ----
     - name: Install CRI-O from local files (Offline - DEB)
       ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/cri-o*.deb || apt-get install -f -y"
       when: 
         - offline_install | bool
-        - ansible_distribution == 'Ubuntu'
+        - ansible_facts['distribution'] == 'Ubuntu'
 
     # ---- Align CRI-O's pause image with what kubeadm/kubelet expect ----
     # CRI-O ships its own packaged default pause_image (often stale, e.g.

@@ -6,7 +6,7 @@
   # Retries absorb a transient race right after a kubelet/CRI-O restart: the
   # apiserver can still be finishing RBAC sync for a few seconds, returning
   # "Forbidden" for kubernetes-admin even though the credentials are fine.
-  ansible.builtin.command: kubectl uncordon {{ ansible_hostname }}
+  ansible.builtin.command: kubectl uncordon {{ ansible_facts['hostname'] }}
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   delegate_to: "{{ kubectl_delegate_host }}"
@@ -24,7 +24,7 @@
 
 - name: Wait for node to report Ready after upgrade
   ansible.builtin.shell: >
-    kubectl get node {{ ansible_hostname }}
+    kubectl get node {{ ansible_facts['hostname'] }}
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
@@ -50,7 +50,7 @@
   block:
     - name: Check static pod phase
       ansible.builtin.command: >
-        kubectl get pod -n kube-system {{ item }}-{{ ansible_hostname }}
+        kubectl get pod -n kube-system {{ item }}-{{ ansible_facts['hostname'] }}
         -o jsonpath='{.status.phase}'
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
@@ -73,7 +73,7 @@
 
     - name: Re-check static pod phase after kubelet restart
       ansible.builtin.command: >
-        kubectl get pod -n kube-system {{ item }}-{{ ansible_hostname }}
+        kubectl get pod -n kube-system {{ item }}-{{ ansible_facts['hostname'] }}
         -o jsonpath='{.status.phase}'
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
@@ -97,4 +97,4 @@
 
 - name: Show upgraded versions
   ansible.builtin.debug:
-    msg: "{{ inventory_hostname }} ({{ ansible_hostname }}): {{ kubelet_ver.stdout }}"
+    msg: "{{ inventory_hostname }} ({{ ansible_facts['hostname'] }}): {{ kubelet_ver.stdout }}"

@@ -11,7 +11,7 @@
     allow_downgrade: true
     allow_change_held_packages: true
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
 - name: Upgrade kubelet and kubectl (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
@@ -21,7 +21,7 @@
     state: present
     allow_downgrade: true
   when:
-    - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+    - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
     - not (offline_install | bool)
 - name: Upgrade kubelet and kubectl from local files (Offline - RPM)
   ansible.builtin.shell: >
@@ -31,7 +31,7 @@
   failed_when: kubelet_kubectl_offline_rpm.rc != 0
   when:
     - offline_install | bool
-    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - ansible_facts['distribution'] in ['Fedora', 'RedHat', 'CentOS']
 
 - name: Upgrade kubelet and kubectl from local files (Offline - DEB)
   ansible.builtin.shell: >
@@ -40,7 +40,7 @@
   failed_when: kubelet_kubectl_offline_deb.rc != 0
   when:
     - offline_install | bool
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
 
 - name: Check kubelet version after install
   ansible.builtin.command: kubelet --version

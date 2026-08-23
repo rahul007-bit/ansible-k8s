@@ -6,17 +6,20 @@
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
         keyring: /etc/apt/keyrings/docker.asc
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Add repo for containerd on Ubuntu
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
-          signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/ubuntu
-          {{ ansible_distribution_release }} stable
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: [deb]
+        uris: https://download.docker.com/linux/ubuntu
+        suites: ["{{ ansible_facts['distribution_release'] }}"]
+        components: [stable]
+        architectures: ["{{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else ansible_facts['architecture'] }}"]
+        signed_by: /etc/apt/keyrings/docker.asc
+        install_python_debian: true
         state: present
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
 
     - name: Add Docker repository for Fedora
       ansible.builtin.yum_repository:
@@ -26,7 +29,7 @@
         enabled: true
         gpgcheck: true
         gpgkey: https://download.docker.com/linux/fedora/gpg
-      when: ansible_distribution == "Fedora"
+      when: ansible_facts['distribution'] == "Fedora"
 
     - name: Add Docker repository for RedHat
       ansible.builtin.yum_repository:
@@ -36,7 +39,7 @@
         enabled: true
         gpgcheck: true
         gpgkey: https://download.docker.com/linux/rhel/gpg
-      when: ansible_distribution == "RedHat"
+      when: ansible_facts['distribution'] == "RedHat"
 
     - name: Add Docker repository for CentOS
       ansible.builtin.yum_repository:
@@ -46,11 +49,11 @@
         enabled: true
         gpgcheck: true
         gpgkey: https://download.docker.com/linux/centos/gpg
-      when: ansible_distribution == "CentOS"
+      when: ansible_facts['distribution'] == "CentOS"
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
     - name: Install containerd on Ubuntu
       ansible.builtin.package:
         name: "{{ item }}"
@@ -58,12 +61,12 @@
       with_items:
         - containerd
         - runc
-      when: ansible_distribution == 'Ubuntu'
+      when: ansible_facts['distribution'] == 'Ubuntu'
     - name: Install containerd on RHEL/CentOS/Fedora
       ansible.builtin.dnf:
         name: containerd
         state: present
-      when: ansible_distribution in ['RedHat', 'CentOS', "Fedora"]
+      when: ansible_facts['distribution'] in ['RedHat', 'CentOS', "Fedora"]
     - name: Stop and disable CRI-O if present (switching to containerd)
       ansible.builtin.service:
         name: crio

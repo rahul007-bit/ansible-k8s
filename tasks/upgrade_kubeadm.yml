@@ -18,7 +18,7 @@
     dest: /tmp/kubernetes-release-key-{{ target_version }}.gpg
     mode: "0644"
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
 - name: De-armor and install Kubernetes GPG key (Ubuntu)
   ansible.builtin.shell: >
@@ -26,17 +26,21 @@
     -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
     /tmp/kubernetes-release-key-{{ target_version }}.gpg
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
   changed_when: true
 
 - name: Update Kubernetes repository to target version (Ubuntu)
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/deb/ /"
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/deb/"
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    install_python_debian: true
     state: present
-    filename: kubernetes
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
 - name: Update Kubernetes repository to target version (RHEL/CentOS/Fedora)
   ansible.builtin.yum_repository:
@@ -47,14 +51,14 @@
     gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ target_minor_version }}/rpm/repodata/repomd.xml.key"
     enabled: true
   when:
-    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - ansible_facts['distribution'] in ['Fedora', 'RedHat', 'CentOS']
     - not (offline_install | bool)
 # ---- Step 2: Upgrade kubeadm ----
 - name: Update apt cache (Ubuntu)
   ansible.builtin.apt:
     update_cache: true
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
 - name: Upgrade kubeadm (Ubuntu)
   ansible.builtin.apt:
@@ -63,7 +67,7 @@
     allow_downgrade: true
     allow_change_held_packages: true
   when:
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - not (offline_install | bool)
 - name: Upgrade kubeadm (RHEL/CentOS/Fedora)
   ansible.builtin.dnf:
@@ -71,7 +75,7 @@
     state: present
     allow_downgrade: true
   when:
-    - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+    - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
     - not (offline_install | bool)
 - name: Upgrade kubeadm from local files (Offline - RPM)
   ansible.builtin.shell: "rpm -Uvh --replacepkgs --oldpackage $(find {{ remote_pkg_dir }} -name 'kubeadm-*.rpm' -o -name 'cri-tools-*.rpm')"
@@ -79,7 +83,7 @@
   failed_when: kubeadm_offline_rpm.rc != 0
   when:
     - offline_install | bool
-    - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+    - ansible_facts['distribution'] in ['Fedora', 'RedHat', 'CentOS']
 
 - name: Upgrade kubeadm from local files (Offline - DEB)
   ansible.builtin.shell: "dpkg -i {{ remote_pkg_dir }}/**/kubeadm*.deb"
@@ -87,7 +91,7 @@
   failed_when: kubeadm_offline_deb.rc != 0
   when:
     - offline_install | bool
-    - ansible_distribution == 'Ubuntu'
+    - ansible_facts['distribution'] == 'Ubuntu'
 
 - name: Check kubeadm version
   ansible.builtin.command: kubeadm version -o short

@@ -15,7 +15,7 @@
 
 - name: Record snapshot timestamp
   ansible.builtin.set_fact:
-    etcd_snapshot_path: "/var/backups/etcd-snapshot-{{ target_version }}-{{ ansible_date_time.iso8601_basic_short }}.db"
+    etcd_snapshot_path: "/var/backups/etcd-snapshot-{{ target_version }}-{{ ansible_facts['date_time']['iso8601_basic_short'] }}.db"
 
 - name: Snapshot etcd before upgrade
   ansible.builtin.command: >

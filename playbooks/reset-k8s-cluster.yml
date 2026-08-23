@@ -22,14 +22,14 @@
     - name: Disabling SWAP
       ansible.builtin.command: swapoff --all
       changed_when: false
-      when: ansible_distribution in ["Ubuntu", "Debian", "Fedora"]
+      when: ansible_facts['distribution'] in ["Ubuntu", "Debian", "Fedora"]
 
     - name: Disable SWAP permanently
       ansible.builtin.replace:
         path: /etc/fstab
         regexp: ^([^#].*?\sswap\s+sw\s+.*)$
         replace: "# \\1"
-      when: ansible_distribution in ["Ubuntu", "Debian", "Fedora"]
+      when: ansible_facts['distribution'] in ["Ubuntu", "Debian", "Fedora"]
 
     # Step 2: Reset Kubernetes using kubeadm
     - name: Reset Kubernetes using kubeadm
@@ -140,7 +140,7 @@
         state: absent
         purge: true
       when: 
-        - ansible_distribution == 'Ubuntu'
+        - ansible_facts['distribution'] == 'Ubuntu'
         - remove_packages | bool
 
     # Step 10: Remove Kubernetes and CRI-O packages (RHEL/CentOS/Fedora)
@@ -155,7 +155,7 @@
         done
         true
       when:
-        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
         - remove_packages | bool
       changed_when: true
       ignore_errors: true
@@ -174,7 +174,7 @@
         - /etc/apt/keyrings/kubernetes-apt-keyring.gpg~
         - /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
       when: 
-        - ansible_distribution == 'Ubuntu'
+        - ansible_facts['distribution'] == 'Ubuntu'
         - remove_packages | bool
 
     # Step 12: Remove Repositories (RHEL/CentOS/Fedora)
@@ -186,7 +186,7 @@
         - kubernetes.repo
         - crio.repo
       when: 
-        - ansible_distribution in ['RedHat', 'CentOS', 'Fedora']
+        - ansible_facts['distribution'] in ['RedHat', 'CentOS', 'Fedora']
         - remove_packages | bool
 
     # Step 13: Remove CRI-O and containerd directories

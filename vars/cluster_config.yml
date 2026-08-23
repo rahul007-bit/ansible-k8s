@@ -47,13 +47,13 @@ ignore_preflight_errors: ""  # Errors to ignore during kubeadm init/join
 
 # --- Installation Settings (create_k8s.yml) ---
 runtime: crio  # Options: crio, containerd
-kube_version: "1.35"
-crio_version: "v1.35"
+kube_version: "1.36"
+crio_version: "v1.36"
 cni_plugins_version: "v1.6.2"
 cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz"
 
 # --- Networking Settings ---
-cni_plugin: flannel  # Options: calico, flannel
+cni_plugin: calico  # Options: calico, flannel
 calico_version: v3.26.0
 flannel_version: v0.28.3
 

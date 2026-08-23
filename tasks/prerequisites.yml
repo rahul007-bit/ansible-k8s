@@ -13,8 +13,8 @@
 - name: Check Minimum CPU Cores
   ansible.builtin.assert:
     that:
-      - ansible_processor_vcpus >= node_reqs['cpu_cores']
-    fail_msg: "CPU FAIL: has {{ ansible_processor_vcpus }}, need {{ node_reqs['cpu_cores'] }}"
+      - ansible_facts['processor_vcpus'] >= node_reqs['cpu_cores']
+    fail_msg: "CPU FAIL: has {{ ansible_facts['processor_vcpus'] }}, need {{ node_reqs['cpu_cores'] }}"
     success_msg: "CPU OK"
   when: node_reqs | length > 0
   register: cpu_check
@@ -23,8 +23,8 @@
 - name: Check Minimum RAM
   ansible.builtin.assert:
     that:
-      - ansible_memtotal_mb >= node_reqs['ram_mb']
-    fail_msg: "RAM FAIL: has {{ ansible_memtotal_mb }}MB, need {{ node_reqs['ram_mb'] }}MB"
+      - ansible_facts['memtotal_mb'] >= node_reqs['ram_mb']
+    fail_msg: "RAM FAIL: has {{ ansible_facts['memtotal_mb'] }}MB, need {{ node_reqs['ram_mb'] }}MB"
     success_msg: "RAM OK"
   when: node_reqs | length > 0
   register: ram_check
@@ -36,7 +36,7 @@
       - (item.size_total / 1073741824) >= node_reqs['disk_gb']
     fail_msg: "Disk FAIL: {{ (item.size_total / 1073741824) | round(1) }}GB, need {{ node_reqs['disk_gb'] }}GB"
     success_msg: "Disk OK"
-  loop: "{{ ansible_mounts }}"
+  loop: "{{ ansible_facts['mounts'] }}"
   when:
     - node_reqs | length > 0
     - item.mount == '/'
@@ -60,8 +60,8 @@
 - name: Check External Mounts
   ansible.builtin.assert:
     that:
-      - "item.0.path in (ansible_mounts | map(attribute='mount') | list)"
-      - "((ansible_mounts | selectattr('mount', 'equalto', item.0.path) | first).size_total / 1073741824) >= item.0.min_size_gb"
+      - "item.0.path in (ansible_facts['mounts'] | map(attribute='mount') | list)"
+      - "((ansible_facts['mounts'] | selectattr('mount', 'equalto', item.0.path) | first).size_total / 1073741824) >= item.0.min_size_gb"
     fail_msg: "MOUNT FAIL: {{ item.0.path }} missing or < {{ item.0.min_size_gb }}GB"
     success_msg: "Mount OK"
   loop: "{{ prereq_external_mounts | default([]) | product([inventory_hostname]) | list }}"
@@ -202,7 +202,7 @@
 
 - name: Check TCP Port Connectivity (N-to-N)
   ansible.builtin.wait_for:
-    host: "{{ hostvars[item.1].ansible_host | default(hostvars[item.1].ansible_default_ipv4.address) }}"
+    host: "{{ hostvars[item.1].ansible_host | default(hostvars[item.1].ansible_facts.default_ipv4.address if hostvars[item.1].ansible_facts is defined and hostvars[item.1].ansible_facts.default_ipv4 is defined else item.1) }}"
     port: "{{ item.0.port | int }}"
     timeout: 5
     state: started
@@ -236,17 +236,17 @@
       ======================================================
       Node  : {{ inventory_hostname }}
       Group : {{ 'controlplane' if inventory_hostname in groups.get('controlplane',[]) else 'worker' if inventory_hostname in groups.get('worker',[]) else 'unknown' }}
-      OS    : {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_architecture }})
+      OS    : {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }} ({{ ansible_facts['architecture'] }})
 
       -- Resources ------------------------------------------
-      CPU   : {{ ansible_processor_vcpus }} cores     [min: {{ node_reqs.get('cpu_cores','N/A') }}]   {{ '[PASS]' if not cpu_check.failed | default(false) else '[FAIL]' }}
-      RAM   : {{ (ansible_memtotal_mb / 1024) | round(1) }} GB        [min: {{ ((node_reqs.get('ram_mb',0)) / 1024) | round(1) }} GB]   {{ '[PASS]' if not ram_check.failed | default(false) else '[FAIL]' }}
-      Disk  : {{ ((ansible_mounts | selectattr('mount','equalto','/') | first).size_total / 1073741824) | round(1) }} GB        [min: {{ node_reqs.get('disk_gb','N/A') }} GB]   {{ '[PASS]' if not (disk_check.results | default([]) | selectattr('failed','defined') | selectattr('failed') | list | length > 0) else '[FAIL]' }}
+      CPU   : {{ ansible_facts['processor_vcpus'] }} cores     [min: {{ node_reqs.get('cpu_cores','N/A') }}]   {{ '[PASS]' if not cpu_check.failed | default(false) else '[FAIL]' }}
+      RAM   : {{ (ansible_facts['memtotal_mb'] / 1024) | round(1) }} GB        [min: {{ ((node_reqs.get('ram_mb',0)) / 1024) | round(1) }} GB]   {{ '[PASS]' if not ram_check.failed | default(false) else '[FAIL]' }}
+      Disk  : {{ ((ansible_facts['mounts'] | selectattr('mount','equalto','/') | first).size_total / 1073741824) | round(1) }} GB        [min: {{ node_reqs.get('disk_gb','N/A') }} GB]   {{ '[PASS]' if not (disk_check.results | default([]) | selectattr('failed','defined') | selectattr('failed') | list | length > 0) else '[FAIL]' }}
 
       -- External Mounts ------------------------------------
       {% for m in (prereq_external_mounts | default([])) %}
       {% if m.nodes == 'all' or inventory_hostname in groups.get(m.nodes,[]) or inventory_hostname == m.nodes %}
-      {% set minfo = ansible_mounts | selectattr('mount','equalto',m.path) | list %}
+      {% set minfo = ansible_facts['mounts'] | selectattr('mount','equalto',m.path) | list %}
       {% if minfo | length > 0 %}
       {% set sz = (minfo[0].size_total / 1073741824) | round(1) | string ~ ' GB' %}
       {{ m.path }} : {{ sz }} [min: {{ m.min_size_gb }} GB]   {{ '[PASS]' if (minfo[0].size_total / 1073741824) >= m.min_size_gb else '[FAIL]' }}

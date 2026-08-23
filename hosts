@@ -10,10 +10,11 @@
 # ssh -J root@10.8.0.5 root@192.168.50.170   # node1 (controlplane)
 # ssh -J root@10.8.0.5 root@192.168.50.169   # node2 (worker)
 [controlplane]
-node1 ansible_host=192.168.50.170 ansible_user=root
+node1 ansible_host=192.168.50.169 ansible_user=root
 
 [worker]
-node2 ansible_host=192.168.50.169 ansible_user=root
+node2 ansible_host=192.168.50.188 ansible_user=root
+node3 ansible_host=192.168.50.170 ansible_user=root
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
