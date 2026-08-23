@@ -1,7 +1,7 @@
 ---
 # Single-control-plane etcd restore. Only ever included after an operator has
 # explicitly typed 'yes' at the rescue-block prompt in
-# tasks/upgrade_control_plane_apply.yml — never triggered automatically.
+# tasks/upgrade_control_plane_apply.yml. Never triggered automatically.
 # Not supported/attempted for multi-node etcd (guarded by the caller).
 
 - name: Stop kubelet
@@ -61,4 +61,4 @@
     msg: >
       etcd restored from {{ etcd_snapshot_path }}. Pre-restore data kept at
       /var/lib/etcd-failed-upgrade for inspection. The upgrade has been
-      aborted — investigate the failure before retrying.
+      aborted. Investigate the failure before retrying.

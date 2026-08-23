@@ -1,8 +1,7 @@
----
 # Control-plane kubeadm upgrade: `kubeadm upgrade apply` on the first
 # control-plane node, `kubeadm upgrade node` on the rest. The apply step is
-# wrapped in block/rescue: on failure it only ever OFFERS an etcd-snapshot
-# rollback and waits for an explicit operator answer — it never restores
+# wrapped in block/rescue: on failure it only ever offers an etcd-snapshot
+# rollback and waits for an explicit operator answer. It never restores
 # anything on its own.
 
 - name: Run kubeadm upgrade plan (first control plane only)
@@ -72,7 +71,7 @@
         - interactive_rollback_prompt | default(true) | bool
         - rollback_answer.user_input | default('') | lower == 'yes'
 
-    - name: Halt — manual recovery required
+    - name: Halt (manual recovery required)
       ansible.builtin.fail:
         msg: >
           Upgrade failed and no rollback was performed. Investigate and, if

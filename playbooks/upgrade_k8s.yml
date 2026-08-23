@@ -16,13 +16,13 @@
 # cordoned.
 #
 # Supports offline_install (see vars/cluster_config.yml) the same way
-# create_k8s.yml does — packages/images are staged from offline_pkg_path
-# instead of hitting pkgs.k8s.io. Re-stage the TARGET version's bundle
+# create_k8s.yml does. Packages and images are staged from offline_pkg_path
+# instead of hitting pkgs.k8s.io. Re-stage the target version bundle
 # before running this playbook.
 #
 # On a control-plane upgrade failure, the playbook never rolls back on its
-# own — it only offers an etcd-snapshot restore and waits for an explicit
-# operator answer (see tasks/upgrade_control_plane_apply.yml).
+# own. It pauses for operator confirmation before restoring an etcd snapshot
+# (see tasks/upgrade_control_plane_apply.yml).
 
 - name: Stage offline images on every node before any kubeadm upgrade command
   # kubeadm's own preflight health-check Job (kubeadm upgrade plan/apply,

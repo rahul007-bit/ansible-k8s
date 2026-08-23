@@ -1,6 +1,6 @@
 ---
 # CP0-only: snapshot etcd before touching anything, so there's a known-good
-# recovery point if the upgrade fails. Never restored automatically — see
+# recovery point if the upgrade fails. Never restored automatically. See
 # tasks/upgrade_rollback.yml, which only runs after explicit operator
 # confirmation.
 

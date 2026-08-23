@@ -1,52 +1,66 @@
-# Kubernetes Cluster Automation — Ansible Playbooks
+# Kubernetes cluster automation with Ansible
 
-This repository provides an automated, end-to-end bootstrap and teardown process for bare-metal and VM-based Kubernetes clusters using Ansible.
+Ansible playbooks to bootstrap, upgrade, and tear down bare-metal and VM Kubernetes clusters.
 
-## 📚 Documentation
+## Documentation
 
-The detailed guide for this project is split into several documents under the `docs/` folder:
+Detailed guides live in `docs/`:
 
-1. [**01. Overview & Architecture**](docs/01_overview.md)
-   - A high-level look at the playbooks, configurable variables, container runtimes (CRI-O / containerd), and the supported operating systems.
+- [01. Overview and architecture](docs/01_overview.md): playbooks, variables, runtime choices (CRI-O or containerd), and supported OS distributions.
+- [02. Prerequisites and setup](docs/02_prerequisites.md): SSH keys, sudoers permissions, network requirements, and initial connectivity checks.
+- [03. Usage guide](docs/03_usage_guide.md): running `create_k8s.yml`, `upgrade_k8s.yml`, and `reset-k8s-cluster.yml` with common flags and overrides.
+- [04. Playbook internals](docs/04_top_level_playbooks.md): step-by-step breakdown of commands executed across each playbook.
+- [05. Prerequisites playbook](docs/05_prerequisites_playbook.md): automated pre-flight checks for CPU, RAM, disk, mounts, ports, and mesh connectivity.
 
-2. [**02. Prerequisites & Pre-flight Checks**](docs/02_prerequisites.md)
-   - Step-by-step instructions for preparing the control-plane and worker nodes before running the playbooks.
+## Quick start
 
-3. [**03. Usage Guide**](docs/03_usage_guide.md)
-   - Detailed instructions on how to use `create_k8s.yml`, `upgrade_k8s.yml`, and `reset-k8s-cluster.yml`, including examples and expected outputs.
+Define your nodes in `hosts`:
 
-4. [**04. Top-Level Playbooks Breakdown**](docs/04_top_level_playbooks.md)
-   - A descriptive, line-by-line explanation of each of the major top-level YAML playbooks.
+```ini
+[controlplane]
+node1 ansible_host=192.168.1.10 ansible_user=root
 
-5. [**05. Prerequisites Playbook**](docs/05_prerequisites_playbook.md)
-   - Documentation for the automated `prerequisites.yml` playbook which validates system resources, network connectivity, and external mounts.
+[worker]
+node2 ansible_host=192.168.1.11 ansible_user=root
+node3 ansible_host=192.168.1.12 ansible_user=root
+```
 
-## 🚀 Quick Start
-
-Ensure your `hosts` inventory file is populated with your `[controlplane]` and `[worker]` nodes.
-
-First, you can optionally run the pre-flight checks independently:
+Run pre-flight checks:
 
 ```bash
 ansible-playbook -i hosts playbooks/prerequisites.yml
 ```
 
-Then execute the cluster creation playbook (which will also run the prerequisites if enabled):
+Create the cluster:
 
 ```bash
 ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
-To upgrade an existing cluster to a new Kubernetes version:
+Upgrade the cluster to a new minor version:
 
 ```bash
 ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.31
 ```
 
-To entirely wipe all nodes (destructive operation):
+Tear down the cluster:
 
 ```bash
 ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e force_reset=yes
 ```
 
-> **Note:** For deep-dives into individual components like CRI-O, Containerd, or Basic Setup, refer to the README files located inside each component's directory.
+### Makefile shortcuts
+
+You can also run commands via `make`:
+
+```bash
+make ping                                     # Test SSH connectivity
+make become-check                             # Test root/sudo escalation
+make facts                                    # Test OS detection
+make syntax-check                             # Validate playbook syntax
+make prereq                                   # Run pre-flight checks
+make create                                   # Create cluster
+make upgrade TARGET_VERSION=1.31              # Upgrade Kubernetes
+make upgrade-crio CRIO_VERSION=v1.32          # Upgrade CRI-O
+make reset FORCE_RESET=yes                    # Reset cluster
+```

@@ -1,297 +1,176 @@
-# Usage & Configuration Guide
+# Usage and configuration guide
 
-Once your prerequisites are in place (see `02_prerequisites.md`), you're ready to configure and run the playbook. This doc explains what you can tweak and how each setting affects the cluster.
+This guide explains how to configure cluster settings and execute cluster playbooks.
 
-## Table of Contents
+## Table of contents
 
-- [Setting Up the Inventory](#setting-up-the-inventory)
-  - [What each part means](#what-each-part-means)
-  - [Adding more workers](#adding-more-workers)
-  - [Multiple control plane nodes (HA)](#multiple-control-plane-nodes-ha)
-- [Tweaking the Playbook Variables](#tweaking-the-playbook-variables)
-  - [Automated Prerequisites](#automated-prerequisites)
-  - [Container Runtime](#container-runtime)
-  - [Kubernetes Version](#kubernetes-version)
-  - [CRI-O Version](#cri-o-version)
-  - [CNI Plugin (Networking)](#cni-plugin-networking)
-  - [CNI Plugins Binaries Version](#cni-plugins-binaries-version)
-  - [Pod Network CIDR](#pod-network-cidr)
-  - [Kube User](#kube-user)
-  - [HA Settings](#ha-settings)
-  - [OS Upgrade](#os-upgrade)
-  - [Firewall Configuration](#firewall-configuration)
-- [Running the Playbooks](#running-the-playbooks)
+- [Setting up the inventory](#setting-up-the-inventory)
+- [Playbook configuration variables](#playbook-configuration-variables)
+  - [Automated prerequisites](#automated-prerequisites)
+  - [Container runtime](#container-runtime)
+  - [Kubernetes version](#kubernetes-version)
+  - [CRI-O version](#cri-o-version)
+  - [CNI plugin](#cni-plugin)
+  - [CNI plugin binary version](#cni-plugin-binary-version)
+  - [Pod network CIDR](#pod-network-cidr)
+  - [Kube user](#kube-user)
+  - [High availability settings](#high-availability-settings)
+  - [OS upgrade](#os-upgrade)
+  - [Firewall configuration](#firewall-configuration)
+- [Running the playbooks](#running-the-playbooks)
   - [Check prerequisites](#check-prerequisites)
   - [Create a cluster](#create-a-cluster)
   - [Reset a cluster](#reset-a-cluster)
   - [Upgrade a cluster](#upgrade-a-cluster)
   - [Upgrade CRI-O](#upgrade-crio)
-  - [Dry run (check mode)](#dry-run-check-mode)
-  - [See detailed output](#see-detailed-output)
-  - [Run on specific hosts only](#run-on-specific-hosts-only)
-- [Common Scenarios](#common-scenarios)
-  - [Scenario 1: Fresh cluster with defaults](#scenario-1-fresh-cluster-with-defaults)
-  - [Scenario 2: Rebuild from scratch](#scenario-2-rebuild-from-scratch)
-  - [Scenario 3: Use Flannel instead of Calico](#scenario-3-use-flannel-instead-of-calico)
-  - [Scenario 4: Add a new worker to an existing cluster](#scenario-4-add-a-new-worker-to-an-existing-cluster)
-  - [Scenario 5: HA cluster with multiple masters](#scenario-5-ha-cluster-with-multiple-masters)
-- [Quick Reference](#quick-reference)
+  - [Check mode (dry run)](#check-mode-dry-run)
+- [Common scenarios](#common-scenarios)
+- [Offline installation](#offline-installation)
 
 ---
 
-## Setting Up the Inventory
+## Setting up the inventory
 
-The `hosts` file is where you define your cluster — which machines are control plane nodes and which are workers.
+Define cluster nodes in `hosts`:
 
 ```ini
 [controlplane]
-host3 ansible_host=192.168.1.205 ansible_user=rahul
+master1 ansible_host=192.168.1.205 ansible_user=root
+master2 ansible_host=192.168.1.123 ansible_user=root
 
 [worker]
-host2 ansible_host=192.168.1.123 ansible_user=rahul
+worker1 ansible_host=192.168.1.124 ansible_user=root
+worker2 ansible_host=192.168.1.125 ansible_user=root
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
 ```
 
-### What each part means
+- `ansible_host`: Target host IP address.
+- `ansible_user`: SSH login username with root or sudo permissions.
+- `ansible_python_interpreter`: Remote Python 3 interpreter path.
 
-- **`ansible_host`** — the IP address of the machine. Change this to match your actual server IPs.
-- **`ansible_user`** — the SSH user Ansible will log in as. This user needs sudo access on the remote machine.
-- **`ansible_python_interpreter`** — Path to Python on the remote machines. Run `which python3` on your servers to find the correct path.
-
-### Adding more workers
-
-Just add more lines under `[worker]`:
-
-```ini
-[worker]
-worker1 ansible_host=192.168.1.123 ansible_user=rahul
-worker2 ansible_host=192.168.1.124 ansible_user=rahul
-worker3 ansible_host=192.168.1.125 ansible_user=rahul
-```
-
-### Multiple control plane nodes (HA)
-
-Add more nodes to `[controlplane]` for a multi-master setup. The first node initializes the cluster, additional nodes join as control plane members:
-
-```ini
-[controlplane]
-master1 ansible_host=192.168.1.205 ansible_user=rahul
-master2 ansible_host=192.168.1.123 ansible_user=rahul
-
-[worker]
-worker1 ansible_host=192.168.1.124 ansible_user=rahul
-```
-
-> **Note**: For production HA you need at least 3 control plane nodes (etcd quorum requires a majority). 2 masters is fine for testing but won't give you fault tolerance. A load balancer in front of the API servers is also recommended for production.
+For high-availability control planes, use an odd number of nodes (minimum 3) to maintain etcd quorum.
 
 ---
 
-## Tweaking the Playbook Variables
+## Playbook configuration variables
 
-All the main settings live in `vars/cluster_config.yml`. You can either edit them directly in that file, or override them at runtime using `-e` on the command line (overrides the file).
+Main configuration settings live in `vars/cluster_config.yml`. Values can also be passed at runtime using `-e`.
 
-### Automated Prerequisites
-
-```yaml
-run_prerequisites: true
-```
-If set to `true`, `create_k8s.yml` will automatically run pre-flight checks (CPU, RAM, Disks, Port Availability, and Node-to-Node Connectivity) before installing Kubernetes. See `05_prerequisites_playbook.md` for full details on configuring the `prereq_min_requirements` and `prereq_external_mounts`.
-
-### Container Runtime
+### Automated prerequisites
 
 ```yaml
-runtime: containerd  # Options: containerd, crio
+run_prerequisites: false
 ```
 
-This controls which container runtime gets installed on all your nodes.
+When set to `true`, `create_k8s.yml` runs pre-flight validation (CPU, RAM, disk, mounts, ports, and network reachability) before initiating installation.
 
-| Value | What gets installed | When to use |
-| ----------- | ------------------- | ----------- |
-| `containerd` | containerd + runc | Default, recommended. Most widely used with Kubernetes. |
-| `crio` | CRI-O | If your team prefers CRI-O, or you're following OpenShift patterns. |
+### Container runtime
 
-To switch to CRI-O:
+```yaml
+runtime: crio  # Options: crio, containerd
+```
+
+Sets the container runtime:
+- `containerd`: containerd with runc.
+- `crio`: CRI-O container runtime.
+
+To switch runtime on the command line:
 
 ```bash
-# Option A: Edit the file (recommended)
-# Change runtime: containerd → runtime: crio in vars/cluster_config.yml
-
-# Option B: Override at runtime (no file changes)
-ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio
+ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=containerd
 ```
 
-### Kubernetes Version
+### Kubernetes version
 
 ```yaml
-kube_version: "1.35"  # e.g., 1.35, 1.34, 1.33
+kube_version: "1.32"
 ```
 
-This controls which version of `kubeadm`, `kubelet`, and `kubectl` gets installed. The version determines which `pkgs.k8s.io` repository is used.
+Sets the Kubernetes package version for `kubeadm`, `kubelet`, and `kubectl`. Use format `1.32` or `1.32.2`.
 
-```bash
-# Option A: Edit the file (recommended)
-# Change kube_version: "1.32" → kube_version: "1.30" in vars/cluster_config.yml
-
-# Option B: Override at runtime
-ansible-playbook -i hosts playbooks/create_k8s.yml -e kube_version=1.30
-```
-
-> **Note**: Use the format `1.32` (no `v` prefix). Check [Kubernetes releases](https://github.com/kubernetes/kubernetes/releases) for available versions.
-
-### CRI-O Version
+### CRI-O version
 
 ```yaml
-crio_version: "v1.35"  # e.g., v1.35, v1.34
+crio_version: "v1.32"
 ```
 
-Only used when `runtime: crio`. Controls which CRI-O package version gets installed.
+Used when `runtime: crio`. Sets the CRI-O package version (with `v` prefix).
 
-```bash
-# Option A: Edit the file (recommended)
-# Change crio_version: "v1.31" → crio_version: "v1.30" in vars/cluster_config.yml
-
-# Option B: Override at runtime
-ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio -e crio_version=v1.34
-```
-
-> **Note**: Use the format `v1.35` (with `v` prefix). Check [CRI-O releases](https://github.com/cri-o/cri-o/releases) for available versions.
-
-### CNI Plugin (Networking)
+### CNI plugin
 
 ```yaml
-cni_plugin: flannel    # Options: calico, flannel
-calico_version: v3.26.0  # Version tag for Calico releases
-flannel_version: v0.26.0 # Version tag for Flannel releases
+cni_plugin: calico    # Options: calico, flannel
+calico_version: v3.26.0
+flannel_version: v0.28.3
 ```
 
-The CNI plugin handles networking between your pods. The playbook supports two popular options:
+Selects the network plugin:
+- `calico`: Network policies, BGP and VXLAN routing. Default subnet: `192.168.0.0/16`.
+- `flannel`: Lightweight overlay networking. Default subnet: `10.244.0.0/16`.
 
-| Plugin | Default CIDR | Best for |
-| ------- | ------------ | -------- |
-| Calico | `192.168.0.0/16` | Production clusters, network policies, BGP routing |
-| Flannel | `10.244.0.0/16` | Simple setups, learning, smaller clusters |
-
-The pod CIDR is auto-set based on your CNI choice. You don't need to touch it unless you have a specific network requirement.
-
-To switch to Flannel:
-
-```bash
-# Option A: Edit the file (recommended)
-# Change cni_plugin: calico → cni_plugin: flannel in vars/cluster_config.yml
-# Make sure flannel_version is set to a valid release (e.g. v0.26.0)
-
-# Option B: Override at runtime (no file changes)
-ansible-playbook -i hosts playbooks/create_k8s.yml \
-  -e cni_plugin=flannel \
-  -e flannel_version=v0.26.0
-```
-
-> **Important**: The `calico_version` or `flannel_version` must be a valid release tag from the respective project. Calico versions look like `v3.26.0` (check [Calico releases](https://github.com/projectcalico/calico/releases)). Flannel versions look like `v0.26.0` (check [Flannel releases](https://github.com/flannel-io/flannel/releases)).
-
-### CNI Plugins Binaries Version
+### CNI plugin binary version
 
 ```yaml
-cni_plugins_version: "v1.6.2"  # e.g., v1.6.2, v1.5.1
+cni_plugins_version: "v1.6.2"
 ```
 
-This controls the exact version of the standard CNI plugin binaries (like `bridge`, `portmap`, `host-local`, etc.) downloaded straight from [containernetworking/plugins](https://github.com/containernetworking/plugins) into `/opt/cni/bin`. This fixes issues with CRI-O + Flannel where binaries aren't populated properly by the package manager.
+Version of standard CNI plugins (`bridge`, `portmap`, `host-local`) extracted into `/opt/cni/bin`.
 
-```bash
-# Option A: Edit the file (recommended)
-# Change cni_plugins_version: "v1.6.2" → cni_plugins_version: "v1.9.0" in vars/cluster_config.yml
-
-# Option B: Override at runtime
-ansible-playbook -i hosts playbooks/create_k8s.yml -e cni_plugins_version=v1.9.0
-```
-
-### Pod Network CIDR
+### Pod network CIDR
 
 ```yaml
 pod_network_cidr: "{{ cni_default_cidrs[cni_plugin] }}"
 ```
 
-This is the IP range used for pod-to-pod communication. It's auto-set based on the CNI plugin, but you can override it if your network has specific requirements:
+Pod IP subnet. Ensure this subnet does not conflict with existing local networks.
 
 ```bash
 ansible-playbook -i hosts playbooks/create_k8s.yml -e pod_network_cidr=10.100.0.0/16
 ```
 
-> **Heads up**: Make sure the pod CIDR doesn't overlap with your actual host network. For example, if your servers are on `192.168.1.x`, the default Calico CIDR `192.168.0.0/16` technically overlaps (both are in the `192.168.x.x` range). In practice, Calico handles this fine with its routing, but if you run into issues, pick a non-overlapping range like `10.244.0.0/16`.
-
-### Kube User
+### Kube user
 
 ```yaml
 kube_user: "{{ ansible_user | default('ubuntu') }}"
 ```
 
-This is the user who will own the `~/.kube/config` file on the control plane. It automatically uses the same user you're connecting with (`ansible_user` from the inventory). You rarely need to change this.
+User account that owns `~/.kube/config` on the control plane.
 
-### HA Settings
+### High availability settings
 
 ```yaml
-control_plane_endpoint: "{{ hostvars[groups['controlplane'][0]].ansible_host }}"  # auto-set
+control_plane_endpoint: "{{ hostvars[groups['controlplane'][0]].ansible_host }}"
 kubeconfig_on_all_cp: false
 ```
 
-- **`control_plane_endpoint`** — The IP or hostname that all nodes use to reach the API server. Auto-set to the first control plane node's IP. Override this if you have a load balancer.
-- **`kubeconfig_on_all_cp`** — By default, only the first master gets `~/.kube/config`. Set to `true` to copy it to all control plane nodes:
+- `control_plane_endpoint`: Virtual IP, load balancer address, or first master IP used for API server traffic.
+- `kubeconfig_on_all_cp`: When set to `true`, copies `~/.kube/config` to all control plane nodes.
 
-```bash
-# Option A: Edit the file (recommended)
-# Change kubeconfig_on_all_cp: false → kubeconfig_on_all_cp: true in vars/cluster_config.yml
-
-# Option B: Override at runtime
-ansible-playbook -i hosts playbooks/create_k8s.yml -e kubeconfig_on_all_cp=true
-```
-
-### OS Upgrade
+### OS upgrade
 
 ```yaml
-os_upgrade: false  # Set to true to run full OS upgrade
+os_upgrade: false
 ```
 
-The playbook always updates the package cache (`apt update`), but skips the full package upgrade (`apt upgrade`) by default. Enable it if you want to upgrade all packages before setting up Kubernetes:
+When set to `true`, runs full distribution package upgrades before cluster configuration.
 
-```bash
-ansible-playbook -i hosts playbooks/create_k8s.yml -e os_upgrade=true
-```
-
-### Firewall Configuration
+### Firewall configuration
 
 ```yaml
 firewall_enabled: true
 ```
 
-The playbook includes automated firewall configuration for `ufw` (Ubuntu/Debian) and `firewalld` (RHEL/Fedora/CentOS). By default, it opens all required Kubernetes and CNI ports.
+Configures `firewalld` (RHEL, CentOS, Fedora, Rocky) or `ufw` (Ubuntu, Debian) to open required Kubernetes and CNI ports. To manage firewall rules externally, set `firewall_enabled: false`.
 
-| Setting | Default | Description |
-| ------- | ------- | ----------- |
-| `firewall_enabled` | `true` | Whether to automatically manage firewall rules |
-| `firewall_allowed_ports_common` | (Port list) | Core K8s ports (API, etcd, etc.) |
-| `firewall_allowed_ports_cni` | (Port list) | CNI-specific ports (VXLAN, BGP) |
-
-To disable automated firewall management:
-
-```bash
-ansible-playbook -i hosts playbooks/create_k8s.yml -e firewall_enabled=false
-```
-
-> [!TIP]
-> If you have an external firewall or corporate security policy, you might want to disable this and configure your rules manually based on the ports listed in `02_prerequisites.md`.
-
-### Optional Package Removal (Reset)
+### Optional package removal (reset)
 
 ```yaml
-remove_packages: false  # Set to true to purge Kubernetes and CRI-O packages
+remove_packages: false
 ```
 
-By default, the `reset-k8s-cluster.yml` playbook resets cluster configuration and files but leaves the base packages (kubeadm, kubelet, kubectl, cri-o) installed. Enable this if you want a completely clean slate including repository removal.
-
-```bash
-ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e remove_packages=true
-```
+When running `reset-k8s-cluster.yml`, setting `remove_packages: true` purges installed binaries and repository definitions.
 
 ---
 
@@ -318,279 +197,141 @@ ansible-playbook -i hosts playbooks/create_k8s.yml \
   -e flannel_version=v0.26.0
 ```
 
-> **Note**: The creation playbook is **idempotent**. If a node is already part of the cluster or the control plane is already initialized, it will safely skip those steps. This makes it safe to run multiple times or to add new nodes to an existing cluster.
+## Running the playbooks
+
+### Check prerequisites
+
+Run pre-flight checks independently:
+
+```bash
+ansible-playbook -i hosts playbooks/prerequisites.yml
+```
+
+### Create a cluster
+
+```bash
+ansible-playbook -i hosts playbooks/create_k8s.yml
+```
+
+Custom runtime and CNI options can be passed directly:
+
+```bash
+ansible-playbook -i hosts playbooks/create_k8s.yml \
+  -e runtime=containerd \
+  -e cni_plugin=flannel \
+  -e flannel_version=v0.28.3
+```
+
+The playbook skips initialization on nodes that are already members of the cluster.
 
 ### Reset a cluster
 
-This wipes everything and gives you a fresh start. Run this when you want to tear down and rebuild.
-
-> **Caution**: This deletes all data and wipes containers. You will be prompted to confirm `yes` before it proceeds. To bypass the prompt for automation, append `-e force_reset=yes`.
+Tears down Kubernetes services, network bridges, configuration files, and leftover container state:
 
 ```bash
-# Interactive reset
+# Interactive confirmation prompt
 ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml
 
-# Automated reset (bypasses prompt)
+# Non-interactive confirmation
 ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e force_reset=yes
 ```
 
 ### Upgrade a cluster
 
-Use `upgrade_k8s.yml` to perform automated, zero-downtime rolling upgrades of your Kubernetes cluster.
+Kubernetes supports upgrading only one minor version at a time (e.g., 1.30 to 1.31, then 1.31 to 1.32). The playbook blocks multi-minor version jumps.
 
-> **CRITICAL RULE**: Kubernetes only supports upgrading **one minor version at a time**. You cannot jump directly from `v1.28` to `v1.32`. You must upgrade sequentially (e.g., `1.28` → `1.29` → `1.30`). The playbook will automatically abort if you try to skip a version.
-
-The playbook works node-by-node (`serial: 1`) and safely evicts pods using `kubectl drain` before upgrading packages, ensuring your applications experience zero downtime. It runs as two ordered plays — all control-plane nodes first, then workers — so the upgrade order never depends on `hosts` file layout.
+Upgrades run sequentially across control plane nodes first, then workers (`serial: 1`), draining each node before package updates and uncordoning after health checks pass:
 
 ```bash
-# Example: Upgrading from v1.34.x to v1.35.x
-ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.35
+ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.31
 ```
 
-**Safety nets (see `docs/04_top_level_playbooks.md` for full detail):**
-- An etcd snapshot is taken before any control-plane change (`/var/backups/etcd-snapshot-<version>-<timestamp>.db`).
-- Each node must report `Ready` before the rolling upgrade moves to the next one.
-- If `kubeadm upgrade apply` fails on the first control-plane node, the playbook **never rolls back on its own** — it pauses and asks whether to restore the etcd snapshot (single control-plane only; multi-CP requires manual recovery). Set `interactive_rollback_prompt: false` in `vars/cluster_config.yml` for headless/CI runs (still no automatic rollback, just fails immediately with the snapshot path).
-
-**Offline upgrades:** if `offline_install: true`, re-stage the **target version's** package/image bundle at `offline_pkg_path` (same `rpms/`+`images/` layout described below) before running the upgrade — the playbook fails fast if the staged bundle is empty or missing.
+Safety rules during upgrade:
+- Saves an etcd snapshot to `/var/backups/etcd-snapshot-<version>-<timestamp>.db` before changing control plane components.
+- Waits for each node to report `Ready` before proceeding to the next node.
+- If `kubeadm upgrade apply` fails on the first control plane node, the playbook stops immediately and provides the backup path for manual recovery.
 
 ### Upgrade CRI-O
 
-`upgrade_k8s.yml` never touches CRI-O — it only upgrades kubeadm/kubelet/kubectl, matching the original online playbook's scope. Use `upgrade_crio.yml` separately to bump the container runtime:
+CRI-O is upgraded separately from Kubernetes binaries with `upgrade_crio.yml`:
 
 ```bash
-ansible-playbook -i hosts playbooks/upgrade_crio.yml -e crio_version=v1.36
+ansible-playbook -i hosts playbooks/upgrade_crio.yml -e crio_version=v1.32
 ```
 
-Unlike Kubernetes, CRI-O has **no one-minor-at-a-time restriction** — it only needs to satisfy the CRI API kubelet expects, so you can jump directly to any target `crio_version` in one step. This is intentionally kept as a separate playbook rather than folded into `upgrade_k8s.yml`: restarting CRI-O recreates every running container on a node at once, a heavier blast radius than a kubelet restart, and mixing the two upgrade vectors into one automated run makes failures harder to isolate.
+The playbook stops kubelet and running containers before updating CRI-O packages, avoiding hung reconciliations on control-plane nodes.
 
-The playbook stops kubelet and every running container before restarting CRI-O (not just `kubectl drain`, which never evicts static pods like etcd/kube-apiserver or DaemonSet pods) — this avoids CRI-O getting stuck trying to reconcile containers still alive under the old runtime. It also re-derives and rewrites the `pause_image` config from the current `kubeadm` binary on every run, which keeps it in sync even though `upgrade_k8s.yml` never touches it.
-
-**Offline upgrades:** same `offline_install`/`offline_pkg_*` vars as the other playbooks — re-stage the target CRI-O version's bundle first.
-
-### Dry run (check mode)
-
-See what the playbook *would* do without actually making any changes:
+### Check mode (dry run)
 
 ```bash
 ansible-playbook -i hosts playbooks/create_k8s.yml --check
 ```
 
-### See detailed output
-
-If something goes wrong, crank up the verbosity to see exactly what's happening:
+### Limit target hosts
 
 ```bash
-# More detail
-ansible-playbook -i hosts playbooks/create_k8s.yml -v
-
-# Even more detail
-ansible-playbook -i hosts playbooks/create_k8s.yml -vv
-
-# Maximum detail (shows SSH commands, full module args, etc.)
-ansible-playbook -i hosts playbooks/create_k8s.yml -vvv
-```
-
-### Run on specific hosts only
-
-If you only want to run the playbook on certain hosts (e.g., just the workers):
-
-```bash
-ansible-playbook -i hosts playbooks/create_k8s.yml --limit worker
-ansible-playbook -i hosts playbooks/create_k8s.yml --limit host2
+ansible-playbook -i hosts playbooks/create_k8s.yml --limit worker1
 ```
 
 ---
 
-## Common Scenarios
+## Common scenarios
 
-### Scenario 1: Fresh cluster with defaults
-
-```bash
-ansible-playbook -i hosts playbooks/create_k8s.yml
-```
-
-This gives you: containerd + Calico v3.29.3 + pod CIDR `192.168.0.0/16`
-
-### Scenario 2: Rebuild from scratch
-
-```bash
-# Tear down
-ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml
-
-# Build again
-ansible-playbook -i hosts playbooks/create_k8s.yml
-```
-
-### Scenario 3: Use Flannel instead of Calico
-
-Decide which CNI you want **before** creating the cluster. Edit `cni_plugin` and `cni_version` in `vars/cluster_config.yml`, then run:
+### Scenario 1: New cluster with defaults
 
 ```bash
 ansible-playbook -i hosts playbooks/create_k8s.yml
 ```
 
-> **Note**: Swapping CNI plugins on a running cluster is not supported by this playbook. If you need to change CNI, reset the cluster first and rebuild.
+Deploys CRI-O with Calico and pod CIDR `192.168.0.0/16`.
 
-### Scenario 4: Add a new worker to an existing cluster
+### Scenario 2: Teardown and clean redeploy
 
-1. Add the new worker to the `hosts` file:
+```bash
+ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml -e force_reset=yes
+ansible-playbook -i hosts playbooks/create_k8s.yml
+```
+
+### Scenario 3: Add a new worker node
+
+1. Add the worker entry to `hosts`:
 
    ```ini
    [worker]
-   host2 ansible_host=192.168.1.123 ansible_user=rahul
-   host4 ansible_host=192.168.1.126 ansible_user=rahul  # new worker
+   worker1 ansible_host=192.168.1.124 ansible_user=root
+   worker2 ansible_host=192.168.1.125 ansible_user=root  # new node
    ```
 
-2. Run the playbook targeting only the new host:
+2. Run cluster creation limited to the new worker:
 
    ```bash
-   ansible-playbook -i hosts playbooks/create_k8s.yml --limit host4
-   ```
-
-> **Pro Tip**: Because the playbook is idempotent, you can also just run the full `ansible-playbook -i hosts playbooks/create_k8s.yml`. It will detect that your existing nodes are already configured and only perform the setup on the new `host4`.
-
-### Scenario 5: HA cluster with multiple masters
-
-1. Add multiple nodes to `[controlplane]` in the `hosts` file:
-
-   ```ini
-   [controlplane]
-   master1 ansible_host=192.168.1.205 ansible_user=rahul
-   master2 ansible_host=192.168.1.123 ansible_user=rahul
-
-   [worker]
-   # add workers here if needed
-   ```
-
-2. Run the playbook:
-
-   ```bash
-   ansible-playbook -i hosts playbooks/create_k8s.yml
-   ```
-
-3. Verify both nodes show as `control-plane`:
-
-   ```bash
-   ssh rahul@192.168.1.205 "kubectl get nodes"
+   ansible-playbook -i hosts playbooks/create_k8s.yml --limit worker2
    ```
 
 ---
 
-## Quick Reference
+## Offline installation
 
-| What you want | Command |
-| ------------- | ------- |
-| Check Prerequisites | `ansible-playbook -i hosts playbooks/prerequisites.yml` |
-| Create cluster (defaults) | `ansible-playbook -i hosts playbooks/create_k8s.yml` |
-| Create with Flannel | `ansible-playbook -i hosts playbooks/create_k8s.yml -e cni_plugin=flannel -e flannel_version=v0.26.4` |
-| Create with CRI-O | `ansible-playbook -i hosts playbooks/create_k8s.yml -e runtime=crio` |
-| Kubeconfig on all masters | `ansible-playbook -i hosts playbooks/create_k8s.yml -e kubeconfig_on_all_cp=true` |
-| With OS upgrade | `ansible-playbook -i hosts playbooks/create_k8s.yml -e os_upgrade=true` |
-| Reset cluster | `ansible-playbook -i hosts playbooks/reset-k8s-cluster.yml` |
-| Dry run | `ansible-playbook -i hosts playbooks/create_k8s.yml --check` |
-| Verbose mode | `ansible-playbook -i hosts playbooks/create_k8s.yml -vvv` |
-| Run on one host | `ansible-playbook -i hosts playbooks/create_k8s.yml --limit host2` |
-| Upgrade cluster | `ansible-playbook -i hosts playbooks/upgrade_k8s.yml -e target_version=1.31` |
+The playbooks support air-gapped deployments using pre-downloaded package archives and container images.
 
-## Offline Installation
+### Directory structure
 
-The playbook supports installing Kubernetes and CRI-O using pre-downloaded packages (RPM/DEB). This is useful for environments with restricted or no internet access.
+When using `offline_pkg_type: "dir"`, organise files into two subdirectories:
+- `rpms/`: RPM or DEB packages to install.
+- `images/`: `.tar` archives of container images imported directly into the container runtime.
 
-### Configuration
+### Configuration options
 
-All offline settings are configured in `vars/cluster_config.yml`. Below are the two supported configurations:
+In `vars/cluster_config.yml`:
 
-#### Option 1: Directory-based Offline Install (Recommended)
-This approach allows installing from a pre-extracted, structured directory layout containing separate folders for RPMs and container images.
 ```yaml
 offline_install: true
-offline_pkg_type: "dir"               # Options: "zip" or "dir"
-offline_pkg_source: "remote"          # Options: "controller" (transfer from host) or "remote" (already on server)
-offline_pkg_path: "/home/{{ kube_user }}/k8s_packages"  # Root directory path of offline bundle
-remote_pkg_dir: "/home/{{ kube_user }}/k8s_packages/rpms"  # Where RPM packages are stored on remote nodes
-remote_images_dir: "/home/{{ kube_user }}/k8s_packages/images"  # Where container image tars are stored on remote nodes
+offline_pkg_type: "dir"                                       # "dir" or "zip"
+offline_pkg_source: "remote"                                  # "controller" or "remote"
+offline_pkg_path: "/root/k8s_packages"                        # Source directory or zip path
+remote_pkg_dir: "/root/k8s_packages/rpms"                     # Package directory on target nodes
+remote_images_dir: "/root/k8s_packages/images"                # Image archive directory on target nodes
 ```
 
-#### Option 2: Zip-based Offline Install
-This approach uses a single zip/tar archive containing all packages.
-```yaml
-offline_install: true
-offline_pkg_type: "zip"               # Options: "zip" or "dir"
-offline_pkg_source: "controller"      # Options: "controller" (transfer from host) or "remote" (already on server)
-offline_pkg_path: "k8s_rpm.zip"       # Path to the zip file or archive
-remote_pkg_dir: "/tmp/k8s_packages"   # Temp directory on remote nodes to extract packages
-```
-
-> [!WARNING]
-> When using `offline_pkg_type: "dir"`, the directory MUST be structured with two folders:
-> 1. `rpms/` - contains the RPMs to be installed. **Do not include systemd RPMs** in this folder as updating protected systemd packages on running RHEL9 nodes causes transaction failures.
-> 2. `images/` - contains `.tar` files of container images (e.g. flannel, coredns) that are loaded into Podman/CRI-O storage automatically during installation.
-
-Every setting above can also be overridden at runtime with `-e` instead of editing `vars/cluster_config.yml` — useful for scripting/CI, or one-off runs against a bundle staged at a different path:
-
-```bash
-ansible-playbook -i hosts playbooks/create_k8s.yml \
-  -e offline_install=true \
-  -e offline_pkg_type=dir \
-  -e offline_pkg_source=remote \
-  -e offline_pkg_path=/root/bundles/bundle-k8s-offline-rhel-1.36.3 \
-  -e remote_pkg_dir=/root/bundles/bundle-k8s-offline-rhel-1.36.3/rpms \
-  -e remote_images_dir=/root/bundles/bundle-k8s-offline-rhel-1.36.3/images
-```
-
-The same vars apply unchanged to `upgrade_k8s.yml` and `upgrade_crio.yml` — just point them at the target version's bundle instead.
-
-> [!NOTE]
-> The offline install tasks use `rpm -Uvh` directly, not `dnf`/`ansible.builtin.dnf`. `dnf` still calls its subscription-manager plugin even with `--disablerepo=*`, which tries to phone home and can hang for a long time on a truly airgapped host. This is safe only because `syncit`-packed bundles are self-contained — all dependencies already resolved — so there's no repo-aware resolution being skipped.
-
-### Guidelines: When to use which option?
-
-| Setting | Choice | When to Use |
-| :--- | :--- | :--- |
-| **`offline_pkg_type`** | **`dir` (Recommended)** | When you want to manually manage or filter packages (e.g., stripping conflicting systemd RPMs), or want packages and container images organized into separate folders. |
-| | **`zip`** | When you want to deploy a single pre-packaged zip/tar file without extracting its components locally first. |
-| **`offline_pkg_source`** | **`controller`** | When packages are located on your local control node, and you want Ansible to copy them to the target nodes automatically during execution. |
-| | **`remote`** | When the packages are already pre-transferred (via SCP/shared mount) to all target nodes. This skips transfer overhead during the playbook execution (highly recommended for large OCI images over slow links). |
-
-### Scenarios
-
-#### Scenario 1: Upload and Install (Zip)
-
-If you have a zip file (like `k8s_rpm.zip`) on your local machine:
-
-1. Set `offline_install: true` in `vars/cluster_config.yml`.
-2. Set `offline_pkg_source: "controller"`.
-3. Set `offline_pkg_type: "zip"`.
-4. Run the playbook: `ansible-playbook -i hosts playbooks/create_k8s.yml`
-
-#### Scenario 2: Install from pre-uploaded Zip on Remote
-
-If the zip file is already located at `/opt/k8s_rpm.zip` on all remote nodes:
-
-1. Set `offline_install: true`.
-2. Set `offline_pkg_source: "remote"`.
-3. Set `offline_pkg_path: "/opt/k8s_rpm.zip"`.
-4. Run the playbook.
-
-#### Scenario 3: Install from pre-extracted Directory on Remote
-
-If packages are already extracted to `/home/jrspy/k8s_packages` on all remote nodes:
-
-1. Set `offline_install: true`.
-2. Set `offline_pkg_source: "remote"`.
-3. Set `offline_pkg_type: "dir"`.
-4. Set `remote_pkg_dir: "/home/jrspy/k8s_packages/rpms"`.
-5. Set `remote_images_dir: "/home/jrspy/k8s_packages/images"`.
-6. Run the playbook.
-
-#### Scenario 4: Install from local Directory on Controller
-
-If the structured directory resides on your local deployment machine at `/path/to/k8s_packages`:
-
-1. Set `offline_install: true`.
-2. Set `offline_pkg_source: "controller"`.
-3. Set `offline_pkg_type: "dir"`.
-4. Set `offline_pkg_path: "/path/to/k8s_packages"`.
-5. Run the playbook.
+Offline package installations execute `rpm -Uvh` or `dpkg -i` directly, avoiding package manager network lookups on isolated systems.
 
