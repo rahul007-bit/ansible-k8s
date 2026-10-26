@@ -5,6 +5,11 @@
 - name: Handle Offline Package Preparation
   when: offline_install
   block:
+    - name: Remove stale packages from remote package directory
+      ansible.builtin.file:
+        path: "{{ remote_pkg_dir }}"
+        state: absent
+
     - name: Ensure remote package directory exists
       ansible.builtin.file:
         path: "{{ remote_pkg_dir }}"
