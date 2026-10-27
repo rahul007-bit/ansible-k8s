@@ -5,6 +5,11 @@
 - name: Handle Offline Package Preparation
   when: offline_install
   block:
+    - name: Remove stale packages from remote package directory
+      ansible.builtin.file:
+        path: "{{ remote_pkg_dir }}"
+        state: absent
+
     - name: Ensure remote package directory exists
       ansible.builtin.file:
         path: "{{ remote_pkg_dir }}"
@@ -118,7 +123,7 @@
     - not offline_install
 
 - name: Installing Kubernetes packages from local files (Offline - RPM)
-  ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+  ansible.builtin.shell: "dnf install -y --skip-broken --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
   when: 
     - offline_install
     - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']

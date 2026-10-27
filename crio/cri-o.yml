@@ -85,7 +85,7 @@
 
     # ---- Offline Installation (RPM) ----
     - name: Install CRI-O from local files (Offline - RPM)
-      ansible.builtin.shell: "dnf install -y --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
+      ansible.builtin.shell: "dnf install -y --skip-broken --disablerepo=* {{ remote_pkg_dir }}/*.rpm"
       when: 
         - offline_install
         - ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
